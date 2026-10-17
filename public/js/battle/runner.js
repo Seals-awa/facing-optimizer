@@ -3,8 +3,9 @@
 // Like the official client, the browser simulates battles itself with the shared deterministic sim (server/sim,
 // served read-only at /sim/). The server sends a JSON BattleSpec (`b.start`); this module builds the Battle with
 // /sim/spec.js createBattleFromSpec and
-//   * steps it at the battle speed (fixed 1/30 s ticks, 2× → 60 ticks per real second; at most
-//     max(8, 4·speed) ticks per animation frame, bounded fast-forward up to CATCHUP_TICKS per frame when it is far
+//   * steps it at the battle speed (b.start `speed`: 2, or 4 in a room whose host chose 战斗期倍速 — the same fixed
+//     1/30 s ticks, so the battle's result is identical either way; at most max(8, 4·speed) ticks per animation frame,
+//     bounded fast-forward up to CATCHUP_TICKS per frame when it is far
 //     behind: a reconnect, observing a running field, a tab back from the background),
 //   * feeds the render engine every frame through the same wire formats the server used to stream
 //     (`snap` = b.snap frame from battle.snapshot(), `ev` = b.ev frame from battle.drainEvents()) and publishes the
@@ -136,7 +137,7 @@ export function compactHeld(list) {
 /** Request failures after which a b.result counts as never delivered (re-sent on resume / b.start). */
 export const LOST_RESULT_CODES = Object.freeze(['DISCONNECTED', 'OFFLINE', 'TIMEOUT']);
 
-/** Ticks per frame at a speed (same cap as the server pacing: server/match/fields.js maxTicksPerInterval). */
+/** Ticks per frame at a speed (8 at 2×, 16 at 4×; same cap as the server pacing: server/match/fields.js maxTicksPerInterval). */
 export const ticksPerFrameCap = (speed) => Math.max(8, Math.ceil((Number(speed) || 2) * 4));
 
 /**
