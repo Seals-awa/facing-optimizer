@@ -959,7 +959,9 @@ export async function createFieldView(host, options = {}) {
       const spine = typeof info.spine === 'string' && info.spine.startsWith('char_') ? info.spine : null;
       const charId = defId.startsWith('char_') ? defId : (spine || data.chess(defId)?.charId || null);
       if (!charId) return;
-      ctx.audio?.voice?.(charId, 'place', { unitKey: 'prep:' + (v.id ?? v.uid ?? defId) });
+      // `interrupt`: in the prep a DIFFERENT operator landing takes the channel over from the deploy line on air
+      // (audio.js VoiceGate.request); the same piece landing again stays silent (same unitKey).
+      ctx.audio?.voice?.(charId, 'place', { unitKey: 'prep:' + (v.id ?? v.uid ?? defId), interrupt: true });
     } catch { /* a voice never stops the landing */ }
   }
 

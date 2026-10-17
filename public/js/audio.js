@@ -514,21 +514,28 @@ export class VoiceGate {
   /**
    * May a `slot` line from `unitKey` start now?
    * @param {string} slot
-   * @param {string|number|null} unitKey the cooldown key (a battle unit id; null = no per-unit cooldown)
+   * @param {string|number|null} unitKey the cooldown key (a battle unit id / a prep piece; null = unknown)
    * @param {number} now ms
+   * @param {{ interrupt?: boolean }} [o] `interrupt`: this line may cut off a 部署语音 of ANOTHER operator (the prep's
+   *   placements ask for it — a different operator landing says its line now). A battle's mass deploy at the round start
+   *   does not: eight lines cutting each other would be a chatter.
    * @returns {'play'|'preempt'|'queue'|'drop'} 'queue' = a 部署语音 that must sound once the line on air ends
    */
-  request(slot, unitKey, now) {
+  request(slot, unitKey, now, o = {}) {
     const pri = VOICE_PRIORITY[slot] ?? 0;
     const tap = VOICE_TAP_SLOTS.includes(slot);
     const always = VOICE_ALWAYS_SLOTS.includes(slot);
     if (this.playing) {
       if (tap && this.playing.slot === slot) return 'preempt';   // a newer tap replaces the 选中 line on air
       if (always) {
-        // 部署语音: the channel is handed over from anything below it (the 选中 line in particular), it never cuts off
-        // another deploy line, and it waits for a more important line instead of being dropped
+        // 部署语音: the channel is handed over from anything below it (the 选中 line in particular); with `interrupt` also
+        // from ANOTHER operator's deploy line — the same operator landing again never repeats itself. A more important
+        // line is waited for, never dropped.
         if (pri > this.playing.pri) return 'preempt';
-        return pri === this.playing.pri ? 'drop' : 'queue';
+        if (pri < this.playing.pri) return 'queue';
+        const same = this.playing.key != null && unitKey != null && String(this.playing.key) === String(unitKey);
+        if (same) return 'drop';
+        return o.interrupt === true ? 'preempt' : 'drop';
       }
       if (pri < this.playing.pri + this.preemptMargin) return 'drop';
       return 'preempt';                       // a clearly more important line takes the channel
@@ -542,7 +549,7 @@ export class VoiceGate {
 
   /** Record a line that started (call right after request() answered play / preempt). */
   start(slot, unitKey, now) {
-    this.playing = { slot, pri: VOICE_PRIORITY[slot] ?? 0 };
+    this.playing = { slot, pri: VOICE_PRIORITY[slot] ?? 0, key: unitKey ?? null };   // the key tells the operator apart
     if (!VOICE_TAP_SLOTS.includes(slot)) this.lastAt = now;   // the gap is between battle lines: a tap starts none
     const cd = VOICE_COOLDOWN_MS[slot] ?? 0;
     if (unitKey != null && cd > 0) {
@@ -1148,7 +1155,7 @@ export class AudioManager {
    * @param {string} charId e.g. 'char_263_skadi'
    * @param {'start'|'faceEnemy'|'select'|'place'|'skill1'|'skill2'|'skill3'|'skill4'|'squad'|'squadFirst'
    *   |'resultFour'|'resultThree'|'resultTwo'|'resultLose'|'gacha'} slot
-   * @param {{ unitKey?: string|number|null, volume?: number }} [o] `unitKey` = the cooldown key (a battle unit id)
+   * @param {{ unitKey?: string|number|null, volume?: number, interrupt?: boolean }} [o] `unitKey` = the cooldown key (a battle unit id / a prep piece); `interrupt` = a 部署语音 of another operator may be cut off (the prep's placements pass it)
    * @returns {boolean} whether such a line exists and started
    */
   voice(charId, slot, o = {}) {
@@ -1160,7 +1167,7 @@ export class AudioManager {
       const line = pick();
       if (!line) return false;
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const verdict = this.voiceGate.request(slot, o.unitKey ?? null, now);
+      const verdict = this.voiceGate.request(slot, o.unitKey ?? null, now, { interrupt: o.interrupt === true });
       if (verdict === 'drop') return false;
       if (verdict === 'queue') { this._queueVoice(charId, slot, o, now); return false; }
       if (verdict === 'preempt') this._stopVoice();

@@ -43,10 +43,31 @@ test('a tap never interrupts a deploy line', () => {
   assert.equal(gate.request('select', null, 1100), 'drop', '选中 must not cut off 部署');
 });
 
-test('two deploy lines do not cut each other off', () => {
+test('two deploy lines of the SAME operator do not cut each other off', () => {
   const gate = makeGate();
-  playing(gate, 'place', 1000);
-  assert.equal(gate.request('place', null, 1100), 'drop', 'an equal-priority deploy line waits, it does not chop');
+  gate.request('place', 'prep:p:1', 1000);
+  gate.start('place', 'prep:p:1', 1000);
+  assert.equal(gate.request('place', 'prep:p:1', 1100), 'drop', 'the same piece landing again stays silent');
+  // a different operator WITHOUT the prep's interrupt flag still waits (a battle's mass deploy must not chatter)
+  assert.equal(gate.request('place', 'prep:p:2', 1100), 'drop');
+  assert.equal(gate.request('place', 'prep:p:2', 1100, { interrupt: true }), 'preempt', 'with the flag it takes over');
+});
+
+test("a DIFFERENT operator's prep placement interrupts the deploy line on air", () => {
+  const gate = makeGate();
+  gate.request('place', 'prep:p:1', 1000);
+  gate.start('place', 'prep:p:1', 1000);
+  assert.equal(gate.request('place', 'prep:p:2', 1100, { interrupt: true }), 'preempt', 'another operator says its line now');
+  gate.start('place', 'prep:p:2', 1100);
+  assert.equal(gate.request('place', 'prep:p:2', 1200, { interrupt: true }), 'drop', 'the same one again: silent');
+  assert.equal(gate.request('place', 'prep:p:3', 1200, { interrupt: true }), 'preempt', 'the next different one interrupts again');
+});
+
+test('a battle deploy does NOT cut off another deploy line (eight at the round start)', () => {
+  const gate = makeGate();
+  gate.request('place', 'u:1', 1000);
+  gate.start('place', 'u:1', 1000);
+  assert.equal(gate.request('place', 'u:2', 1010), 'drop', 'no interrupt flag: the first line finishes');
 });
 
 test('a deploy line queues behind a more important line', () => {
