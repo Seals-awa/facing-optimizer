@@ -36,7 +36,8 @@ This repo holds only the **modified files**, at their original paths, to copy ov
 
 - `server/sim/snapshot.js` — `UnitInfo.atkInterval` = 干员真实攻击间隔 `s.interval`（含加成）。
 - `public/js/render/attackRate.js` **（新文件）** — `startAtkInterval`（快照值 > 面板估值 > 1.2 s）、
-  `nextAtkInterval`（**第一次实测间隔直接取代估值**，之后 60/40 平滑；0.05–6 s 之外的间隔视为卡顿忽略）。
+  `nextAtkInterval`（第一次实测取代估值；之后**变化超过 8% 下一次出手直接跟上**，只有 30 Hz 抖动级的偏差才按 25% 轻微过渡；
+  0.05–6 s 之外视为卡顿忽略）。
 - `public/js/render/units.js` — 视图出生用 `startAtkInterval`；`onAttack` 的节奏平滑改用 `nextAtkInterval`，
   所以战斗第一刀就是正常速度（此前 宴 这类开技能后间隔 0.74 s、估值 1.20 s 的干员会慢放 62%）。
 

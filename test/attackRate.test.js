@@ -1,13 +1,16 @@
 // Attack-clip pacing (render/attackRate.js). The symptom this fixed: at the start of a battle an operator's attack clip
 // ran in slow motion. The clip is stretched over the unit's attack interval, the view started from the operator's BASE
 // record (`bat × 100 / aspd`) while the battle had already buffed it (宴: 1.20 s guessed vs 0.74 s real = a 62 % slow
-// clip), and only the measured gap between attacks pulled it right. The snapshot's own interval now starts the view.
+// clip), and only the measured gap between attacks pulled it right. The snapshot's own interval now starts the view, and
+// the measured gap is followed directly: a real change (skill on/off, an attack-speed buff) is taken on the next swing
+// instead of crawling there over several attacks — only tick-sized wobble is smoothed.
 // `node --test test/attackRate.test.js`
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
   clampAtkInterval, startAtkInterval, nextAtkInterval, ATK_DEFAULT_S, ATK_MAX_S, ATK_MIN_S,
+  ATK_JUMP_TOLERANCE, ATK_DRIFT_SHARE,
 } from '../public/js/render/attackRate.js';
 
 test('the snapshot interval wins over the base-record guess', () => {
@@ -32,10 +35,21 @@ test('the first measured gap replaces the estimate outright', () => {
   assert.equal(r.interval, 0.74, 'no slow-motion ramp-in');
 });
 
-test('later gaps smooth 60/40 into the measurement', () => {
-  const r = nextAtkInterval(0.74, 0.84, true);
+test('a real change is taken on the very next swing (no long smoothing)', () => {
+  // a skill turning on / off, an attack-speed buff: 1.20 → 0.74 is far past the tolerance
+  for (const [prev, measured] of [[1.2, 0.74], [0.74, 1.2], [1.3, 0.9], [0.9, 1.3]]) {
+    const r = nextAtkInterval(prev, measured, true);
+    assert.equal(r.measured, true);
+    assert.equal(r.interval, measured, `${prev} → ${measured} is followed at once`);
+  }
+});
+
+test('tick-sized wobble is smoothed, not copied', () => {
+  const wobble = 1.0 * (1 + ATK_JUMP_TOLERANCE / 2);       // inside the tolerance
+  const r = nextAtkInterval(1.0, wobble, true);
   assert.equal(r.measured, true);
-  assert.equal(Math.round(r.interval * 1000) / 1000, Math.round((0.74 * 0.6 + 0.84 * 0.4) * 1000) / 1000);
+  assert.ok(r.interval > 1.0 && r.interval < wobble, `moved part way (${r.interval})`);
+  assert.equal(r.interval, 1.0 + (wobble - 1.0) * ATK_DRIFT_SHARE);
 });
 
 test('a stall is not a rhythm', () => {
