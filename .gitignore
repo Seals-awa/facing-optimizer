@@ -1,0 +1,41 @@
+# 卫戍协议：盟约 —— 整份游戏源码 + 自己的插件一起提交 GitHub 时用这个
+# （只想发布插件：把 plugins/facing-optimizer 单独建仓库，用那个文件夹里的 .gitignore）
+
+# ── 依赖 / 构建产物（可以重新生成，不要进 git）──────────────────
+node_modules/
+.cache/
+plugins/_dist/
+plugins/_replaced/
+plugins/_removed/
+# 发布包清单：只有打包发布时才有（tools/ 生成，源码仓库里没有）
+MANIFEST.json
+
+# ── 官方素材（约 1 GB，属游戏版权方，永远不要提交）─────────────
+public/assets/
+# 数据文件是从官方数据构建出来的：不想提交就把下面这行打开，克隆后用 npm run setup 重建
+# data/
+
+# ── 隐私 / 钥匙 ──────────────────────────────────────────────
+# plugins/.studio-key 是插件工作台的写入钥匙（等价于密码），泄漏了别人就能改你的插件
+plugins/.studio-key
+*.key
+.env
+.env.*
+
+# ── 插件文件夹 ───────────────────────────────────────────────
+# 上游约定：插件不进仓库，只保留 plugins/AGENTS.md、plugins/README.md 和 plugins/_template/。
+# 你要把自己写的插件一起发布，所以这里默认**没有**忽略它们；不想发布就把下面四行打开：
+# plugins/*
+# !plugins/AGENTS.md
+# !plugins/README.md
+# !plugins/_template/
+
+# ── 系统 / 编辑器 / 日志 ─────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.log
+npm-debug.log*
+yarn-error.log*
