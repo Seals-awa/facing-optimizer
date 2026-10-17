@@ -32,7 +32,15 @@ This repo holds only the **modified files**, at their original paths, to copy ov
   `data.chess(...).charId` 映射到干员的 `char_*`，补位/自选取模型的 charId）；在棋盘内挪格（`move`）、合成、开局回放
   不播。战斗内的 `deploy` 事件沿用原来的 `place` 触发。
 
-### 3. 战斗启动提速 / faster battle boot
+### 3. 攻击动画节奏 / attack-clip pacing
+
+- `server/sim/snapshot.js` — `UnitInfo.atkInterval` = 干员真实攻击间隔 `s.interval`（含加成）。
+- `public/js/render/attackRate.js` **（新文件）** — `startAtkInterval`（快照值 > 面板估值 > 1.2 s）、
+  `nextAtkInterval`（**第一次实测间隔直接取代估值**，之后 60/40 平滑；0.05–6 s 之外的间隔视为卡顿忽略）。
+- `public/js/render/units.js` — 视图出生用 `startAtkInterval`；`onAttack` 的节奏平滑改用 `nextAtkInterval`，
+  所以战斗第一刀就是正常速度（此前 宴 这类开技能后间隔 0.74 s、估值 1.20 s 的干员会慢放 62%）。
+
+### 4. 战斗启动提速 / faster battle boot
 
 - `public/js/battle/simHost.js` — 打完的 Worker **留暖**（按内容集 `cs` 区分，最多 1 个，180 s 过期）供下一场直接
   `start(spec)` 复用；`prewarmHost` 在开战 4 s 后**后台预热**下一个 Worker。

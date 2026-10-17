@@ -87,6 +87,7 @@ import { diamondTexture, shadowTexture, fxAtlas, tierChip, statusTexture, itemTe
 import { COLORS, TIER_COLORS, ENEMY_FRAME, UNIT, PROJ, statusIconKey, statusIconSuppressed } from './style.js';
 import { drawCrate, rowDepthKey, ROW_KEY, deviceBoxOf, DEVICE_BOX } from './tiles.js';
 import { facingToward, FACING_FLIP_S, FACING_HOLD_S } from './facing.js';
+import { startAtkInterval, nextAtkInterval } from './attackRate.js';
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const DIRS = ['UP', 'RIGHT', 'DOWN', 'LEFT'];
@@ -722,7 +723,9 @@ export class UnitView {
     this.flash = 0;
     this.bob = Math.random() * Math.PI * 2;
     this.hovered = false; this.dimmed = false; this.lift = 0;
-    this.lastAtk = -1; this.atkInterval = defaultInterval(ctx, info);
+    // the attack clip is stretched to this: the snapshot's own interval first (UnitInfo.atkInterval, buffs included),
+    // the base-record guess only as a fallback — a bare guess made an operator swing in slow motion at the battle start
+    this.lastAtk = -1; this.atkSeen = false; this.atkInterval = startAtkInterval(info.atkInterval, defaultInterval(ctx, info));
     this.shake = 0;
     this.screen = { x: 0, y: 0, s: 1, top: 0 };
     this.placed = false;          // set by the first update's projection: until then `screen` is not on screen (bounds)
@@ -1386,8 +1389,10 @@ export class UnitView {
     const once = !!PROJ[kind]?.once;
     if (!once) {
       if (this.lastAtk >= 0) {
-        const d = now - this.lastAtk;
-        if (d > 0.05 && d < 6) this.atkInterval = this.atkInterval * 0.6 + d * 0.4;
+        // the real gap between two attacks: the first one replaces the estimate, later ones smooth into it
+        const r = nextAtkInterval(this.atkInterval, now - this.lastAtk, this.atkSeen);
+        this.atkInterval = r.interval;
+        if (r.measured) this.atkSeen = true;
       }
       this.lastAtk = now;
     }
