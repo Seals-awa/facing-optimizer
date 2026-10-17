@@ -88,7 +88,7 @@ import { contentFor as appContentFor, simContent as appSimContent, contentSet as
 import { fxForm } from '../../../shared/protocol.js';
 import { spectateEffects } from './observe.js';
 import { recordError, setBattleSource } from '../diag.js';
-import { loadBrowserSim } from './simLoader.js';
+import { loadBrowserSim, contentNeedsWorker } from './simLoader.js';
 import { InPageSimHost, WorkerSimHost, takeWarmHost, parkHost, pruneWarmHosts, drainWarmHosts, prewarmHost, prewarming } from './simHost.js';
 import { trackCombat, combineCombat } from './metrics.js';
 import { t } from '../../../shared/i18n.js';
@@ -278,7 +278,13 @@ export function createBattleRunner(deps) {
     simCs = want;
     const p = (want ? contentFor(want).then((content) => {
       if (!content || content.cs !== want) throw new Error(`the content set ${want.slice(0, 8)} is not loaded on this page`);
-      return deps.loadSim ? loadSim(content) : { content, cs: want, remote: true };
+      // A room's content set runs in THIS page unless it carries a script plugin: the module Worker exists for the SES
+      // sandbox, and its per-battle boot (engine modules + SES lockdown + plugin install) is what made a modded battle
+      // take seconds to start on a phone. A data-only set — a 数值 / 干员 / 商店 plugin, or scripts the server did not
+      // enable — is simulated in the page exactly like the original content (simLoader.contentNeedsWorker).
+      if (deps.loadSim) return loadSim(content);
+      if (!contentNeedsWorker(content)) return loadSim({ ...content, scripts: [] });
+      return { content, cs: want, remote: true };
     }) : loadSim(null)).catch((err) => { if (simP === p) { simP = null; simCs = null; } throw err; });
     simP = p;
     return p;

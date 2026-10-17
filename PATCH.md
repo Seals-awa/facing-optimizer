@@ -44,6 +44,11 @@ This repo holds only the **modified files**, at their original paths, to copy ov
 
 ### 4. 战斗启动提速 / faster battle boot
 
+- `public/js/battle/simLoader.js` — `contentNeedsWorker(content)`：只有内容集里**有脚本插件**才需要模块 Worker（SES 沙箱）；
+  纯数据插件（数值 / 干员 / 敌人 / 商店 …）与"脚本未启用"的空脚本列表都返回 false。
+- `public/js/battle/runner.js` — `ensureSim`：没有脚本的内容集**在页面内**加载（`loadSim({ ...content, scripts: [] })`），
+  和原生内容一样，于是这类房间进战斗不再有"每场一次"的 Worker 启动；带脚本的仍走 Worker。
+
 - `public/js/battle/simHost.js` — 打完的 Worker **留暖**（按内容集 `cs` 区分，最多 1 个，180 s 过期）供下一场直接
   `start(spec)` 复用；`prewarmHost` 在开战 4 s 后**后台预热**下一个 Worker。
 - `public/js/battle/runner.js` — 进战斗时优先取留暖的 Worker；淘汰条目时把它留暖而不是销毁；`dispose` 时清空池。
@@ -51,31 +56,78 @@ This repo holds only the **modified files**, at their original paths, to copy ov
   SES 的 `lockdown()` 删除它时抛错，整个脚本 Worker 停止（`PLUGIN_WORKER_FAILED`，
   `Cannot delete property 'arguments' of function TextEncoder()`）。补丁按它原本对待不可删除 `prototype` 的方式容忍并警告。
 
-### 4. 测试 / tests
+### 5. 战斗期倍速 2× / 4×（房间统一，结果不变）/ battle speed
 
-`test/facingRender.test.js`、`test/voiceGate.test.js`、`test/sesTolerance.test.js`、`test/simHostPool.test.js`
-（`node --test test/xxx.test.js`；引擎内插件测试用 `node tools/plugin.mjs test <id>`，本仓库不含插件）。
+**做什么**：房主在房间里把战斗速度设为 **×2**（默认，即原来的节奏）或 **×4**，整个房间的**常规作战与联防**都按这个
+速度推进；顶栏在 ×4 时显示一个 `×4` 小牌。**最终攻势 / 隐秘核心始终 ×2**（它们的共享领袖血池按服务器真实时间记账，
+加速只会让客户端上报的伤害被暂时压后，甚至可能让这一场提前结束）。
+
+**为什么结果不变**：模拟从来是按**固定的 1/30 秒一步**（tick）推进的，倍速只决定一秒里走多少步 —— 同一份战斗规格在
+两种速度下走的是**完全相同的 tick 序列**，所以伤害、击杀、漏怪、盟约层数、掉落、结算都逐位相同，只有现实用时减半。
+客户端（`b.start.speed`）、服务器自己的推进（`FieldRunner`）、结果截止时间、结果释放与服务器兜底都是同一个速度，
+不会出现"手表和模拟对不上"。
+
+**为什么不是插件**：插件 API 没有能改战斗节奏的入口（`sim.*` 在战斗内部，改不了推进；`ui` 插件不能发对局意图）。
+所以这一条改的是引擎与界面本身，和朝向一样属于本补丁集。
+
+- `shared/constants.js` — `BATTLE_SPEEDS = [2, 4]`、`DEFAULT_BATTLE_SPEED`、`isBattleSpeed`、`battleSpeedOf(kind, base, room)`：
+  常规 / 联防用房间速度，`boss` / `hidden` 用基础速度。
+- `shared/protocol.js` — 新意图 `room.setBattleSpeed { speed: 2 | 4 }`。
+- `server/lobby.js` — 房间状态 `room.state.battleSpeed`；房主在开局前设置，像改难度一样**把其他真人取消准备**；新房间默认 2；
+  跨局保留；开局时存进 Match 的 `opts.battleSpeed`。
+- `server/match/Match.js` — `battleSpeed` 与 `_speedOf(kind)`：一处决定"这一场用几倍速"。
+- `server/match/fields.js` — `FieldRunner` 按 `speed` 累积时间（4× 每秒 120 tick，追帧上限同步放大）。
+- `server/match/match/clientCombat.js` — `b.start.speed`、战场时钟 `_fieldElapsed`、结果截止 / 结果释放都按 `_speedOf`。
+- `server/match/match/combat.js`、`server/match/match/unitePhase.js` — 作战 / 联防的截止时间与服务器推进用房间速度。
+- `server/match/match/views.js` — `m.public.speed`（顶栏小牌与倒计时量表用）。
+- `server/match/host/proxy.js` — 玩法插件房间的对局跑在子进程里，`battleSpeed` 随选项一起传过去。
+- `public/js/screens/room.js` — 房间底部「战斗速度 ×2 / ×4」选择器（房主可点，其他人只读）。
+- `public/js/ui/hud.js` — 作战 / 联防顶栏的 `×4` 小牌。
+- `public/js/ui/gameLogic/phases.js` — 倒计时量表的总时长跟着倍速缩放（×4 时一场 60 秒的回合只有 30 秒）。
+- `public/js/battle/runner.js` — 注释说明 4×（逻辑本来就按 `b.start.speed` 走，不需要改代码）。
+
+### 6. 测试 / tests
+
+`test/facingRender.test.js`、`test/voiceGate.test.js`、`test/sesTolerance.test.js`、`test/simHostPool.test.js`、
+`test/battleSpeed.test.js`（`node --test test/xxx.test.js`；引擎内插件测试用 `node tools/plugin.mjs test <id>`，本仓库不含插件）。
+
+`test/battleSpeed.test.js` 覆盖：只接受 2 / 4、首领会保持 2×、房主才能设置且开局后冻结、`room.state` / Match 选项搬运、
+`FieldRunner` 在 4× 下每秒走两倍 tick、战场时钟 / 截止 / 释放随速度缩放，以及**同一场战斗用 2 tick / 4 tick 一帧推进
+得到完全相同的 tick 数与结算结果**。
 
 ## 怎么用 / How to apply
 
 1. 复制过去（覆盖同名文件）：
    ```
-   public/js/render/facing.js
-   public/js/render/units.js
+   public/js/battle/runner.js
+   public/js/battle/simHost.js
    public/js/render/app.js
    public/js/render/app/info.js
+   public/js/render/facing.js          （新文件）
+   public/js/render/units.js
    public/js/screens/game/early.js
+   public/js/screens/room.js
+   public/js/ui/gameLogic/phases.js
+   public/js/ui/hud.js
    public/js/audio.js
-   public/js/battle/simHost.js
-   public/js/battle/runner.js
    public/vendor/ses.umd.js
+   server/lobby.js
+   server/match/Match.js
+   server/match/fields.js
+   server/match/host/proxy.js
+   server/match/match/clientCombat.js
+   server/match/match/combat.js
+   server/match/match/unitePhase.js
+   server/match/match/views.js
    server/sim/units.js
    server/sim/battle/queries.js
    server/sim/snapshot.js
+   shared/constants.js
    shared/protocol.js
    ```
 2. 重启服务器，浏览器 **Ctrl+F5**（客户端文件没有构建步骤，改了就生效）。
 3. 房间里**不要**再勾选脚本插件「朝向优化」：朝向已经由客户端做，两者同时开会互相覆盖模型的朝向。
+4. 战斗速度在房间底部选：**×2** 是原来的节奏，**×4** 只加快，不改变战斗结果；最终攻势 / 隐秘核心仍是 ×2。
 
 ## 旧方案 / the old plugin
 
