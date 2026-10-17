@@ -899,7 +899,7 @@ export async function createFieldView(host, options = {}) {
         // also while its drop is still held on that tile (the direction step pins it there, so `moved` is false); turned in
         // place, retreated or moved on the bench it does not
         const was = prevAt.get(e.uid);
-        if (was && e.area === 'board' && (was.area !== 'board' || was.row !== e.row || was.col !== e.col) && !(dragState && dragState.key === key)) landPiece(v, 'board');
+        if (was && e.area === 'board' && (was.area !== 'board' || was.row !== e.row || was.col !== e.col) && !(dragState && dragState.key === key)) landPiece(v, 'move');
       }
       v._home = w;
       v.dimmed = false;
@@ -931,9 +931,34 @@ export async function createFieldView(host, options = {}) {
   /** Land a prep piece (UnitView.land, PR #416) and note it (`landings`, dev / tests); false when the view refused. */
   function landPiece(v, why) {
     if (!v || typeof v.land !== 'function' || !v.land()) return false;
+    // 部署语音 (owner request): an operator placed on the board in the PREP says its 部署 line — the same 'place' slot the
+    // battle's own deploy event uses, so the voice gate's rule applies here too (it always plays and takes the channel from
+    // the 选中 line). `board` = newly on the board (from the bench, the hand, a swap), `buy` = purchased onto it; a move
+    // within the board (`move`), a merge and the round-start replay (`round`) stay silent.
+    if (why === 'board' || why === 'buy') sayPlace(v);
     landings.push({ uid: v.uid ?? null, why, at: performance.now() });
     if (landings.length > 40) landings.shift();
     return true;
+  }
+
+  /**
+   * The operator's 部署语音 for a prep placement. The voice bank belongs to the operator (`char_*`) while a piece is a chess
+   * id (`chess_char_*`), so the chess record's `charId` maps between them (`data.chess`); an id that already is a charId is
+   * used as is. Nothing here may fail a landing.
+   */
+  function sayPlace(v) {
+    try {
+      const info = v?.info || {};
+      if (info.kind !== 'op' || v.isEnemy) return;              // operators and summons speak; items / devices do not
+      const defId = typeof info.defId === 'string' ? info.defId : null;
+      if (!defId) return;
+      // a 补位 / 自选 piece draws another operator: its model id (`spine`) is that operator's charId, the one whose voice bank
+      // exists — otherwise the chess record's charId is the operator's own
+      const spine = typeof info.spine === 'string' && info.spine.startsWith('char_') ? info.spine : null;
+      const charId = defId.startsWith('char_') ? defId : (spine || data.chess(defId)?.charId || null);
+      if (!charId) return;
+      ctx.audio?.voice?.(charId, 'place', { unitKey: 'prep:' + (v.id ?? v.uid ?? defId) });
+    } catch { /* a voice never stops the landing */ }
   }
 
   /**
