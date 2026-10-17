@@ -27,10 +27,10 @@ This repo holds only the **modified files**, at their original paths, to copy ov
 
 - `public/js/audio.js` — `VOICE_ALWAYS_SLOTS = ['place']`：部署语音不再被 1.2 s 的全局间隔吞掉，会**打断选中语音**
   （`select`，优先级 10），遇到更重要的语音（开战/接敌/作战中/结算）则**排队**，等它结束后补播（`VOICE_QUEUE_TTL_MS`）。
-- `public/js/render/app.js` — **准备期部署干员也会播这条语音**：`landPiece` 在干员**新落到棋盘上**（`board`：从手牌/备战区
-  放上去、交换；`buy`：买入落位）时调用 `sayPlace` → `audio.voice(charId, 'place')`（棋子 id `chess_char_*` 经
-  `data.chess(...).charId` 映射到干员的 `char_*`，补位/自选取模型的 charId）；在棋盘内挪格（`move`）、合成、开局回放
-  不播。战斗内的 `deploy` 事件沿用原来的 `place` 触发。
+- `public/js/render/app.js` — **准备期干员落到棋盘上就播这条语音**：`landPiece` 在 `board`（从手牌/备战区放上去、交换）、
+  `buy`（买入落位）、`move`（**在棋盘内挪格 / 交换位置**）时调用 `sayPlace` → `audio.voice(charId, 'place')`（棋子 id
+  `chess_char_*` 经 `data.chess(...).charId` 映射到干员的 `char_*`，补位/自选取模型的 charId）；只有合成（`merge`）与
+  开局回放（`round`）不播。战斗内的 `deploy` 事件沿用原来的 `place` 触发。
 
 ### 3. 攻击动画节奏 / attack-clip pacing
 

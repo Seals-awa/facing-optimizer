@@ -931,11 +931,13 @@ export async function createFieldView(host, options = {}) {
   /** Land a prep piece (UnitView.land, PR #416) and note it (`landings`, dev / tests); false when the view refused. */
   function landPiece(v, why) {
     if (!v || typeof v.land !== 'function' || !v.land()) return false;
-    // 部署语音 (owner request): an operator placed on the board in the PREP says its 部署 line — the same 'place' slot the
-    // battle's own deploy event uses, so the voice gate's rule applies here too (it always plays and takes the channel from
-    // the 选中 line). `board` = newly on the board (from the bench, the hand, a swap), `buy` = purchased onto it; a move
-    // within the board (`move`), a merge and the round-start replay (`round`) stay silent.
-    if (why === 'board' || why === 'buy') sayPlace(v);
+    // 部署语音 (owner request): an operator that lands on the board in the PREP says its 部署 line — the same 'place' slot
+    // the battle's own deploy event uses, so the voice gate's rule applies here too (it always plays and takes the channel
+    // from the 选中 line). `board` = newly on the board (from the bench, the hand, a swap), `buy` = purchased onto it,
+    // `move` = dropped on another board tile / swapped there (the owner wants the line there too); a merge and the
+    // round-start replay (`round`) stay silent. The gate drops a second 'place' while one plays, so dragging quickly does
+    // not stack voices.
+    if (why === 'board' || why === 'buy' || why === 'move') sayPlace(v);
     landings.push({ uid: v.uid ?? null, why, at: performance.now() });
     if (landings.length > 40) landings.shift();
     return true;
