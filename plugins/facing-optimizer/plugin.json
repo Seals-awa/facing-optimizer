@@ -1,0 +1,60 @@
+{
+  "$schema": "../../schemas/plugin.schema.json",
+  "manifest": 2,
+  "id": "facing-optimizer",
+  "name": {
+    "zh": "朝向优化",
+    "en": "Facing Optimizer"
+  },
+  "englishName": "Facing Optimizer",
+  "description": {
+    "zh": "战斗里只有干员的模型会转向它打得到的目标（单奶转向奶到的队友）；攻击范围保持部署方向，群攻与群奶不转，攻击前转向、动画中不转、攻击后保持 3 秒再转回。",
+    "en": "Only the operator's model turns, toward a target it can reach; the attack range keeps the deployed direction. No turning during an animation, a 3 s hold after each attack."
+  },
+  "version": "1.0.0",
+  "app": ">=0.3.0 <0.4.0",
+  "api": 1,
+  "class": "script",
+  "scope": [
+    "room"
+  ],
+  "authors": [
+    "seals_awa"
+  ],
+  "license": "MIT",
+  "settings": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "label": {
+        "zh": "自动调整朝向（只动模型）",
+        "en": "Turn models automatically (cosmetic only)"
+      }
+    },
+    "holdSeconds": {
+      "type": "number",
+      "min": 0,
+      "max": 10,
+      "step": 0.1,
+      "default": 3,
+      "label": {
+        "zh": "攻击后保持朝向多久再转回（秒）",
+        "en": "Hold the facing this long after an attack before turning back (s)"
+      }
+    },
+    "includeTokens": {
+      "type": "boolean",
+      "default": false,
+      "label": {
+        "zh": "召唤物也调整朝向",
+        "en": "Turn summons too"
+      }
+    }
+  },
+  "permissions": [
+    "sim.code"
+  ],
+  "entry": {
+    "sim": "sim/index.js"
+  }
+}
