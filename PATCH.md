@@ -43,6 +43,10 @@ This repo holds only the **modified files**, at their original paths, to copy ov
   `['rate', id, 秒]`（`shared/protocol.js` `EV.RATE`，只在变化时发，仅我方干员）。
 - `public/js/render/app.js` — `case 'rate'` → `UnitView.setAtkInterval`（权威值，下一次起手就用它）；
   `public/js/battle/runner.js` / `public/js/screens/game/early.js` 的 `STATE_EV` 也保留 `rate`（补帧/中途进场）。
+- `public/js/render/spine.js` — `windUpPlan`：`lead < MIN_LEAD`（0.05 s，即没有起手提前量：开局第一刀、迟到批次、模型未就绪）
+  时片段按**自身速度**播放（`ts = 1`），不再被拉成"一个循环 = 一个攻击间隔"；`attack()` 未起手的分支同样按自身速度播尾巴
+  （此前 惊蛰 1 s 片段 / 2.3 s 间隔，第一刀 0.43×、尾巴 1.53 s，看起来像慢放）；`windUp` 的 `attackUntil` 改用实际起播的
+  `tsWind`。
 - `public/js/render/units.js` — 视图出生用 `startAtkInterval`；`onAttack` 的节奏平滑改用 `nextAtkInterval`，
   所以战斗第一刀就是正常速度（此前 宴 这类开技能后间隔 0.74 s、估值 1.20 s 的干员会慢放 62%）。
 
