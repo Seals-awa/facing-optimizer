@@ -151,6 +151,7 @@ import { FxWiring } from './vfx/wiring.js';
 import { PluginFxPlayer } from './vfx/pluginPlayer.js';
 import { resolveOfficialFx } from './vfx/tier.js';
 import { createDragController, pieceTile, dragStandTile } from './drag.js';
+import { attackGroups } from './facing.js';
 import { backdropTextures, shadowTexture, refreshTierChips, refreshDownLabels, silhouetteTexture } from './textures.js';
 import { TILE_H, TIER_COLORS, COLORS } from './style.js';
 import { loadBoardArt } from './boardArt.js';
@@ -1700,57 +1701,52 @@ export async function createFieldView(host, options = {}) {
   }
 
   // attack wind-ups: an 'atk' still queued in the buffer starts its Spine clip early enough for the strike frame to
-  // land when the event is rendered (the look-ahead is the interpolation delay, ~0.2 game s)
+  // land when the event is rendered (the look-ahead is the interpolation delay, ~0.2 game s). The same pass decides the
+  // model facing: render/facing.js attackGroups() groups the window's attacks by ONE attack (one source at one event
+  // time), so a fast single-target attacker is not mistaken for an area one and a 群攻 attack (several distinct targets)
+  // turns nothing at all — and the turn only happens once the wind-up was ACCEPTED (see onUpcoming).
   function windUpAttacks(renderT) {
     upcomingT = renderT;
     upSkill.clear();
-    // pass 1 — how many attacks each unit has in the window: a 群攻 hit (several at once) must not turn the model, and
-    // the facing has to be decided before the clip starts, so the count is needed before onUpcoming runs
-    UP_ATK_COUNT.clear();
-    interp.forEachUpcoming(renderT, renderT + 1.5, countUpcomingAttack);
-    // pass 2 — face the target, then start the clip (FACING FIRST, see onUpcoming)
-    interp.forEachUpcoming(renderT, renderT + 1.5, onUpcoming);
+    for (const up of attackGroups(interp, renderT, renderT + 1.5)) onUpcoming(up);
   }
   let upcomingT = 0;
-  /** Attacks per unit inside the look-ahead window (render/app.js windUpAttacks pass 1). */
-  const UP_ATK_COUNT = new Map();
-  function countUpcomingAttack(e) {
-    if (e[0] === 'atk') UP_ATK_COUNT.set(e[1], (UP_ATK_COUNT.get(e[1]) || 0) + 1);
-  }
+  /** 群攻 of one attack, per event: the deferred `onAttack` path reads it (render/facing.js attackGroups). */
+  const MULTI_ATK = new WeakSet();
   // the look-ahead's skill state: a ['skill', id, on] queued before an 'atk' of that unit (an instant skill sends 1, its
   // attack and 0 in one tick) — the official cast effects of the wind-up are the skill's own then
   const upSkill = new Map();
-  function onUpcoming(e, t) {
+  function onUpcoming(up) {
+    const e = up.ev;
     if (e[0] === 'skill') { upSkill.set(e[1], !!e[2]); return; }
     if (e[0] !== 'atk' || woundUp.has(e) || CHAIN_KINDS.has(e[3])) return;
     const v = views.get(e[1]);
     if (!v || !v.windUp) return;
     const tgt = views.get(e[2]) || battleView(e[2]);
-    // FACING BEFORE THE ANIMATION (owner's rule): the model turns toward the target the moment its attack clip starts
-    // winding up — the strike frame comes later, so the swing is already facing the right way. The 0.05 s flip runs
-    // during the clip's anticipation. `onAttack` repeats it for an attack that had no look-ahead (the clip then starts
-    // at its strike frame); a 群攻 hit is left alone on both paths.
-    if (tgt) v.faceTarget?.(tgt, (UP_ATK_COUNT.get(e[1]) || 0) > 1);
-    if (v.windUp(t - upcomingT, e[3])) {
-      woundUp.add(e);
-      // the official cast effects that start with the cast play with the clip (render/vfx/wiring.js castStart)
-      const a = v.actor;
-      const skillOn = upSkill.has(e[1]) ? upSkill.get(e[1]) : undefined;
-      wiring.castStart(v, tgt, e[3], a ? { skip: a.windSkip || 0, left: a.windCastLeft || 0, skillOn } : { skillOn });
-    }
+    if (up.multi) MULTI_ATK.add(e);
+    const lead = up.t - upcomingT;
+    // ASK BEFORE STARTING ANYTHING: a wind-up that would be refused (a clip still recovering, a stunned actor, too late for
+    // the strike frame) must not turn the model either.
+    if (v.canWindUp && !v.canWindUp(lead, e[3])) return;
+    // FACING FIRST: the model turns - its Front / Back skeleton swap included - BEFORE the clip starts, so the new model
+    // plays the swing from its first frame (turning after the clip started replayed the swing = turning mid-attack).
+    if (tgt) v.faceTarget?.(tgt, up.multi, { lead, instant: true });
+    if (!v.windUp(lead, e[3])) return;
+    woundUp.add(e);
+    // FACING AT THE ANIMATION'S START (render/facing.js): the turn begins with the clip the wind-up just started. A 群攻
+    // attack is left alone here and in `onAttack` below.
+    // the official cast effects that start with the cast play with the clip (render/vfx/wiring.js castStart)
+    const a = v.actor;
+    const skillOn = upSkill.has(e[1]) ? upSkill.get(e[1]) : undefined;
+    wiring.castStart(v, tgt, e[3], a ? { skip: a.windSkip || 0, left: a.windCastLeft || 0, skillOn } : { skillOn });
   }
-
   const EVS = [];
   /** State events handed out more than 1.5 game s late (a stall, a hidden tab, a field entered late) → how late. */
   const LATE = new Map();
-  /** How many targets one attacker hit this frame: > 1 is a 群攻 hit, whose model is not turned (render/units.js). */
-  const ATK_COUNT = new Map();
   function processEvents(renderT) {
     EVS.length = 0;
     LATE.clear();
-    ATK_COUNT.clear();
     interp.takeEvents(renderT, EVS, renderT - 1.5, LATE);
-    for (const e of EVS) if (e[0] === 'atk') ATK_COUNT.set(e[1], (ATK_COUNT.get(e[1]) || 0) + 1);
     for (const e of EVS) {
       try { handleEvent(e, renderT); } catch (err) { if (!handleEvent.warned) { handleEvent.warned = true; console.warn('[render] event failed', e, err); } }
     }
@@ -1794,7 +1790,11 @@ export async function createFieldView(host, options = {}) {
         const src = views.get(e[1]) || battleView(e[1]);
         const tgt = views.get(e[2]) || battleView(e[2]);
         // chain / chainHeal bounces: the "source" is the previous target of the bounce, not an attacker
-        if (src && !CHAIN_KINDS.has(e[3])) src.onAttack?.(tgt, now, e[3], (ATK_COUNT.get(e[1]) || 0) > 1);
+        if (src && !CHAIN_KINDS.has(e[3])) {
+          // the model turns only for a single-target attack; the 群攻 decision comes from the look-ahead's attack group
+          // (MULTI_ATK), never from a per-frame count: a catch-up frame holds several attacks of a fast attacker
+          src.onAttack?.(tgt, now, e[3], MULTI_ATK.has(e));
+        }
         if (e[3] === 'none' || !e[3]) { if (tgt && src) meleePending.set(tgt.id, { src, t: now }); }
         // the unit's official attack (casts, projectile, melee hits — render/vfx/wiring.js) or a chain's bounce (the line of
         // the official shot that opened the chain: wiring.chain), else the procedural one
@@ -1844,6 +1844,19 @@ export async function createFieldView(host, options = {}) {
           v.dying = 0.25; v.dieDur = 0.25;
         }
         fx.leak();
+        break;
+      }
+      case 'rate': {
+        // the sim's own attack interval changed (a skill, an attack-speed buff): pace the clip over it from the next swing
+        const v = views.get(e[1]);
+        if (v && typeof v.setAtkInterval === 'function') v.setAtkInterval(Number(e[2]));
+        break;
+      }
+      case 'tgt': {
+        // the sim's targeting frame: 1 = engaged, 0 = nothing in range (the model then goes back to its deployed direction
+        // once its attack clip is over 鈥?no timer involved)
+        const v = views.get(e[1]);
+        if (v && typeof v.setHasTarget === 'function') v.setHasTarget(!!e[2]);
         break;
       }
       case 'status': { const v = views.get(e[1]); if (v) { v.onStatus?.(e[2], !!e[3]); wiring.status(v, e[2], !!e[3]); } break; }

@@ -50,12 +50,21 @@ export function startAtkInterval(snapshotValue, guess) {
  * @param {boolean} hasMeasured whether an earlier sane gap was already applied
  * @returns {{ interval: number, measured: boolean }} measured = true when this gap was usable
  */
-export function nextAtkInterval(prev, measured, hasMeasured) {
+export function nextAtkInterval(prev, measured, hasMeasured, opts = {}) {
   const d = Number(measured);
   const [lo, hi] = ATK_SANE_S;
   const base = clampAtkInterval(prev);
   if (!Number.isFinite(d) || d <= lo || d >= hi) return { interval: base, measured: false };
   const target = clampAtkInterval(d);
+  // An AUTHORITATIVE interval (the snapshot's `atkInterval` or a `rate` event from the sim) is the truth: a gap far from
+  // it is not a slower rhythm, it is the time the unit was not attacking (a stop, a stun, a control, a redeploy), and
+  // taking it would turn every pause into a slow swing. Only a wobble inside ATK_JUMP_TOLERANCE is followed.
+  if (opts.authoritative) {
+    if (Math.abs(target - base) <= base * ATK_JUMP_TOLERANCE) {
+      return { interval: clampAtkInterval(base + (target - base) * ATK_DRIFT_SHARE), measured: true };
+    }
+    return { interval: base, measured: false };
+  }
   const jump = !hasMeasured || Math.abs(target - base) > base * ATK_JUMP_TOLERANCE;
   return { interval: jump ? target : clampAtkInterval(base + (target - base) * ATK_DRIFT_SHARE), measured: true };
 }
