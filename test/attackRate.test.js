@@ -1,9 +1,9 @@
 // Attack-clip pacing (render/attackRate.js). The symptom this fixed: at the start of a battle an operator's attack clip
 // ran in slow motion. The clip is stretched over the unit's attack interval, the view started from the operator's BASE
 // record (`bat × 100 / aspd`) while the battle had already buffed it (宴: 1.20 s guessed vs 0.74 s real = a 62 % slow
-// clip), and only the measured gap between attacks pulled it right. The snapshot's own interval now starts the view, and
-// the measured gap is followed directly: a real change (skill on/off, an attack-speed buff) is taken on the next swing
-// instead of crawling there over several attacks — only tick-sized wobble is smoothed.
+// clip), and only the measured gap between attacks pulled it right. The snapshot's own interval now starts the view, the
+// measured gap is followed directly (a real change is taken on the next swing), and the sim pushes a changed interval as a
+// ['rate', ...] event (EV.RATE) — see test/attackRateEvents.test.js.
 // `node --test test/attackRate.test.js`
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

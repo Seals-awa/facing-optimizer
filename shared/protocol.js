@@ -584,6 +584,10 @@ export function validateC2S(msg) {
 export const EV = Object.freeze({
   SPAWN: 'spawn', ATK: 'atk', DMG: 'dmg', HEAL: 'heal', SKILL: 'skill', ENGAGE: 'engage', DIE: 'die', LEAK: 'leak',
   STATUS: 'status', FX: 'fx', LAYER: 'layer', BOUNTY: 'bounty', DEPLOY: 'deploy', CAST: 'cast', VDIR: 'vdir',
+  // ['rate', unitId, seconds] — the unit's attack interval CHANGED (a skill, an attack-speed buff/debuff; sim
+  // snapshot.js noteAttackRates). The renderer stretches the attack clip over it (render/attackRate.js): state, not
+  // decoration, so a missed tuple would leave the clip paced at the old rhythm. Only the changes are sent.
+  RATE: 'rate',
 });
 
 /**

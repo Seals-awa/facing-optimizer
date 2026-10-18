@@ -39,6 +39,10 @@ This repo holds only the **modified files**, at their original paths, to copy ov
 - `public/js/render/attackRate.js` **（新文件）** — `startAtkInterval`（快照值 > 面板估值 > 1.2 s）、
   `nextAtkInterval`（第一次实测取代估值；之后**变化超过 8% 下一次出手直接跟上**，只有 30 Hz 抖动级的偏差才按 25% 轻微过渡；
   0.05–6 s 之外视为卡顿忽略）。
+- `server/sim/snapshot.js` + `server/sim/battle/lifecycle.js` — `noteAttackRates`：`s.interval` 变化的同一 tick 发
+  `['rate', id, 秒]`（`shared/protocol.js` `EV.RATE`，只在变化时发，仅我方干员）。
+- `public/js/render/app.js` — `case 'rate'` → `UnitView.setAtkInterval`（权威值，下一次起手就用它）；
+  `public/js/battle/runner.js` / `public/js/screens/game/early.js` 的 `STATE_EV` 也保留 `rate`（补帧/中途进场）。
 - `public/js/render/units.js` — 视图出生用 `startAtkInterval`；`onAttack` 的节奏平滑改用 `nextAtkInterval`，
   所以战斗第一刀就是正常速度（此前 宴 这类开技能后间隔 0.74 s、估值 1.20 s 的干员会慢放 62%）。
 

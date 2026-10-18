@@ -1662,6 +1662,14 @@ export async function createFieldView(host, options = {}) {
       // an ally's MODEL turned toward its target (shared/protocol.js EV.VDIR, Battle.setViewDir — a cosmetic facing
       // plugin): Front ⇄ Back for UP / DOWN, mirrored for LEFT, with the flip transition the tuple carries. The unit's
       // real `dir` and its attack range are untouched (UnitView.setViewDir)
+      // the unit's attack interval CHANGED (shared/protocol.js EV.RATE 鈥?a skill or an attack-speed buff): the attack clip is
+      // stretched over it (render/attackRate.js), so a view that missed the tuple would keep the old rhythm; state, so the
+      // catch-up and late-entry replays keep it too
+      case 'rate': {
+        const v = views.get(e[1]) || battleView(e[1]);
+        if (v && typeof v.setAtkInterval === 'function') v.setAtkInterval(e[2]);
+        break;
+      }
       case 'vdir': {
         const v = views.get(e[1]) || battleView(e[1]);
         if (v && typeof v.setViewDir === 'function') v.setViewDir(e[2], Number(e[3]) || 0);

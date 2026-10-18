@@ -20,6 +20,29 @@ import { DIE_ANIM_TIME, ATTACK_ANIM_TIME, DEPLOY_ANIM_TIME } from './constants.j
 import { enemyStealthed } from './targeting.js';
 
 const r2 = (v) => Math.round(v * 100) / 100;
+
+/**
+ * The attack interval each ally is fighting at, pushed to the clients when it CHANGES (an ['rate', unitId, seconds] event,
+ * EV.RATE): a skill or an attack-speed buff/debuff changes s.interval, and without this the renderer kept the value from
+ * the unit's spawn (UnitInfo.atkInterval) until it had measured two attacks of its own — which is why a caster like 惊蛰
+ * swung in a slightly wrong rhythm for a few attacks after her skill came on. One event per change, allies only (the ones
+ * whose attack clip is stretched over the interval).
+ */
+const RATE_SEEN = new WeakMap();
+export function noteAttackRates(battle) {
+  const list = battle.allyUnits;
+  if (!list || !list.length) return;
+  for (let i = 0; i < list.length; i++) {
+    const u = list[i];
+    if (!u || !u.alive || !u.deployed) continue;
+    const cur = Number(u.s && u.s.interval);
+    if (!Number.isFinite(cur) || cur <= 0) continue;
+    const prev = RATE_SEEN.get(u);
+    RATE_SEEN.set(u, cur);
+    if (prev == null || Math.abs(prev - cur) < 1e-3) continue;   // the spawn value already reached the client
+    battle._ev(['rate', u.id, r2(cur)]);
+  }
+}
 const r1 = (v) => Math.round(v * 10) / 10;
 
 /** Static per-unit info sent on spawn / in m.field. */

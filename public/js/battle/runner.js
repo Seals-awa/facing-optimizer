@@ -102,7 +102,7 @@ const PREPARE_SLICE = 600;
 const MAX_ENTRIES = 4;
 /** A modded battle boots the next round's sim Worker this long after it started, off the critical path. */
 const PREWARM_DELAY_MS = 4000;
-const STATE_EV = new Set(['spawn', 'die', 'deploy', 'status', 'skill', 'leak', 'vdir']);
+const STATE_EV = new Set(['spawn', 'die', 'deploy', 'status', 'skill', 'leak', 'vdir', 'rate']);
 /**
  * The b.ev tuples a catch-up frame or the hidden-tab backlog keeps: the state-bearing kinds, and every fx that sets an
  * enemy's model form (shared/protocol.js fxForm — dropped, the view kept the old model: player report #5 after 0.1.0).

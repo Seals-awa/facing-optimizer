@@ -87,7 +87,7 @@ import { diamondTexture, shadowTexture, fxAtlas, tierChip, statusTexture, itemTe
 import { COLORS, TIER_COLORS, ENEMY_FRAME, UNIT, PROJ, statusIconKey, statusIconSuppressed } from './style.js';
 import { drawCrate, rowDepthKey, ROW_KEY, deviceBoxOf, DEVICE_BOX } from './tiles.js';
 import { facingToward, FACING_FLIP_S, FACING_HOLD_S } from './facing.js';
-import { startAtkInterval, nextAtkInterval } from './attackRate.js';
+import { startAtkInterval, nextAtkInterval, clampAtkInterval } from './attackRate.js';
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const DIRS = ['UP', 'RIGHT', 'DOWN', 'LEFT'];
@@ -1431,6 +1431,20 @@ export class UnitView {
     const ok = this.actor.windUp(this.atkInterval, lead, !!PROJ[kind]?.once);
     if (ok && this.imp) this.imp.dirty = true;
     return ok;
+  }
+
+  /**
+   * The sim says this unit's attack interval CHANGED (.ev ['rate', id, seconds], EV.RATE): a skill or an attack-speed
+   * buff. It is authoritative, so the attack clip is paced right on the NEXT wind-up instead of waiting for the view to
+   * measure two attacks (render/attackRate.js; 惊蛰's skill was the case). Later measured gaps still smooth into it.
+   */
+  setAtkInterval(seconds) {
+    const v = Number(seconds);
+    if (!Number.isFinite(v) || v <= 0) return;
+    this.atkInterval = clampAtkInterval(v);
+    this.atkSeen = true;
+    if (this.actor) this.actor.interval = this.atkInterval;
+    if (this.imp) this.imp.dirty = true;
   }
 
   onHit() { this.flash = 1; }
