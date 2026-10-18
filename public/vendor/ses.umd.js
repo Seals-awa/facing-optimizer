@@ -4514,16 +4514,7 @@ const freezeTypedArray = array => {
           return;
         }
       }
-      // [sp-patch] Some engines (and polyfilled / webview globals, e.g. TextEncoder on the Chromium build of an
-      // Android webview) put an OWN, non-configurable `arguments` or `caller` on a function. Deleting it throws, and
-      // failing here aborted `lockdown()` and with it every script plugin (PLUGIN_WORKER_FAILED, "Cannot delete
-      // property 'arguments' of function TextEncoder"). These two are plain function-introspection props with no
-      // sandbox power, so tolerate them exactly like an undeletable `prototype`.
-      if (typeof obj === 'function' && (prop === 'arguments' || prop === 'caller')) {
-        warn(`Tolerating undeletable ${subPath}`);
-        return;
-      }
-      error(`failed to delete ${subPath}`, reason);
+      /* [sp-patch] tolerate an own, non-configurable `arguments` / `caller` on a function (TextEncoder on some Android WebViews) */ if (typeof obj === 'function' && (prop === 'arguments' || prop === 'caller')) { warn(`Tolerating undeletable ${subPath}`); return; } error(`failed to delete ${subPath}`, reason);
     } else {
       error(`deleting ${subPath} threw`, reason);
     }
