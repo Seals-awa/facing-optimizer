@@ -691,7 +691,7 @@ export class UnitView {
     this._flipDur = 0;
     this._flipSquash = 1;   // 1 → 0 → 1 while the model swaps (no visible width at the swap)
     this._flipSwap = false; // the Front ⇄ Back swap is still owed at the transition's midpoint
-    this.facingFor = 0;     // seconds left before an attack-turned model goes back to its deployed direction (onAttack)
+    this.facingFor = 0;     // seconds left before an attack-turned model goes back to its deployed direction (faceTarget)
     this.hp = Number(info.maxHp) || 1; this.maxHp = Number(info.maxHp) || 1; this.ghostHp = this.hp;
     this.sp = 0; this.spMax = 0;
     this.ammo = null;             // [rounds left, rounds in the magazine] while an ammo skill runs (sync; b.snap `ammo`)
@@ -1383,21 +1383,25 @@ export class UnitView {
    * this frame (群攻): the model is left alone then, the owner's rule.
    */
   /**
-   * Turn the MODEL toward `target` — the display-only facing (`setViewDir`), never `dir` / the attack range. Called from
-   * two places, both BEFORE the swing is visible: the look-ahead (app.js onUpcoming) as the attack clip starts winding up
-   * (the owner's rule: 朝向优先, then the animation), and `onAttack` for an attack that had no look-ahead (its clip starts
-   * at the strike frame). No turn while the unit cannot act, none for a 群攻 hit (`multi`), operators / summons only.
+   * The unit attacked `target`: keep the MODEL facing it (the display-only facing, `setViewDir` — never `dir` / the range)
+   * and restart the 3 s hold. Called from two places, both BEFORE the swing is visible: the look-ahead (app.js onUpcoming)
+   * as the attack clip starts winding up (the owner's rule: 朝向优先, then the animation), and `onAttack` for an attack that
+   * had no look-ahead (its clip starts at the strike frame). Operators / summons only, nothing while it cannot act.
+   *
+   * The hold restarts on EVERY attack, not only on one that needs a turn: refreshing it only when `dir` changed made the
+   * model revert to its deployed facing mid-fight once the 3 s from the last actual turn ran out — the 「偶尔没有 3 秒计时
+   * 就转回去」 the owner reported. A 群攻 hit (`multi`) restarts it too but never turns (its targets differ every swing).
    * @returns {boolean} whether the model turned
    */
   faceTarget(target, multi = false) {
-    if (!target || this.isEnemy || this.info.kind !== 'op') return false;
-    if (multi) return false;
+    if (this.isEnemy || this.info.kind !== 'op') return false;
     const held = this.statuses && (this.statuses.has('stun') || this.statuses.has('sleep') || this.statuses.has('freeze'));
     if (held) return false;
     const dir = facingToward(this, target);
-    if (!dir || dir === (this.viewDir || this.dir)) return false;
+    if (!dir) return false;
+    this.facingFor = FACING_HOLD_S;                     // 3 s from the LAST attack, turn or no turn (update counts it down)
+    if (multi || dir === (this.viewDir || this.dir)) return false;
     this.setViewDir(dir, FACING_FLIP_S);
-    this.facingFor = FACING_HOLD_S;        // back to the deployed facing this long after the last attack (update)
     return true;
   }
 
@@ -1638,10 +1642,12 @@ export class UnitView {
       }
     }
     const P = this.P;
-    // The model that turned toward an attack (onAttack) goes back to its deployed direction this long after the last one
-    // — counted down here so it needs no battle clock, and only while the model is really turned.
+    // The model that turned toward an attack (faceTarget, restarted by every attack) goes back to its deployed direction
+    // this long after the last one — counted down here so it needs no battle clock. Frozen while the unit cannot act: a
+    // stunned / frozen / sleeping model must not turn back (it may only turn once it can act again).
     if (this.facingFor > 0) {
-      this.facingFor -= Number.isFinite(dt) ? Math.max(0, dt) : 0;
+      const held = this.statuses && (this.statuses.has('stun') || this.statuses.has('sleep') || this.statuses.has('freeze'));
+      if (!held) this.facingFor -= Number.isFinite(dt) ? Math.max(0, dt) : 0;
       if (this.facingFor <= 0) { this.facingFor = 0; if (this.viewDir && !this.isEnemy) this.setViewDir(null, FACING_FLIP_S); }
     }
     // the model for the state the frame's events and snapshot left (Front ⇄ Back when it went down / stood up: die, revive)

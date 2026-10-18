@@ -18,6 +18,8 @@ This repo holds only the **modified files**, at their original paths, to copy ov
   **朝向优先**：`windUpAttacks` 改成两趟 —— 先数窗口内每个单位有几个 `atk`（群攻不转），再在起手前调
   `v.faceTarget(target, multi)`，**然后**才 `windUp` 起播攻击片段，所以出手时模型已经朝着目标。
 - `public/js/render/units.js` — `faceTarget(target, multi)`（只转模型；被控/群攻不转），`onAttack` 与预演共用它。
+  **3 秒保持**改成每次攻击都重置（以前只在"真的需要转身"时重置，最后一次转身后 3 秒就回正，哪怕还在打同一个目标）；
+  被控（晕眩/冻结/沉睡）期间倒计时暂停，不会在被控中转回去；群攻不转但照样刷新保持。
 - `public/js/render/app/info.js`、`public/js/screens/game/early.js`、`server/sim/units.js`、
   `server/sim/battle/queries.js`、`server/sim/snapshot.js`、`shared/protocol.js` — 配合的显示通道
   （`unit.viewDir` / `Battle.setViewDir` / `EV.VDIR`），只用于画面，模拟里没有任何代码读它。
