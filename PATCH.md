@@ -15,6 +15,9 @@ This repo holds only the **modified files**, at their original paths, to copy ov
   被控（晕眩/冰冻/沉睡）不转，**同一帧命中多个目标（群攻）不转**；`update` 里 3 秒没有新攻击就转回部署方向。
   另外含 `viewDir` / 翻面过渡的基础实现。
 - `public/js/render/app.js` — 每帧统计每个攻击者的命中数（给上面的"群攻不转"用）；`vdir` 事件（旧插件通道）保留。
+  **朝向优先**：`windUpAttacks` 改成两趟 —— 先数窗口内每个单位有几个 `atk`（群攻不转），再在起手前调
+  `v.faceTarget(target, multi)`，**然后**才 `windUp` 起播攻击片段，所以出手时模型已经朝着目标。
+- `public/js/render/units.js` — `faceTarget(target, multi)`（只转模型；被控/群攻不转），`onAttack` 与预演共用它。
 - `public/js/render/app/info.js`、`public/js/screens/game/early.js`、`server/sim/units.js`、
   `server/sim/battle/queries.js`、`server/sim/snapshot.js`、`shared/protocol.js` — 配合的显示通道
   （`unit.viewDir` / `Battle.setViewDir` / `EV.VDIR`），只用于画面，模拟里没有任何代码读它。

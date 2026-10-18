@@ -1605,9 +1605,19 @@ export async function createFieldView(host, options = {}) {
   function windUpAttacks(renderT) {
     upcomingT = renderT;
     upSkill.clear();
+    // pass 1 — how many attacks each unit has in the window: a 群攻 hit (several at once) must not turn the model, and
+    // the facing has to be decided before the clip starts, so the count is needed before onUpcoming runs
+    UP_ATK_COUNT.clear();
+    interp.forEachUpcoming(renderT, renderT + 1.5, countUpcomingAttack);
+    // pass 2 — face the target, then start the clip (FACING FIRST, see onUpcoming)
     interp.forEachUpcoming(renderT, renderT + 1.5, onUpcoming);
   }
   let upcomingT = 0;
+  /** Attacks per unit inside the look-ahead window (render/app.js windUpAttacks pass 1). */
+  const UP_ATK_COUNT = new Map();
+  function countUpcomingAttack(e) {
+    if (e[0] === 'atk') UP_ATK_COUNT.set(e[1], (UP_ATK_COUNT.get(e[1]) || 0) + 1);
+  }
   // the look-ahead's skill state: a ['skill', id, on] queued before an 'atk' of that unit (an instant skill sends 1, its
   // attack and 0 in one tick) — the official cast effects of the wind-up are the skill's own then
   const upSkill = new Map();
@@ -1616,12 +1626,18 @@ export async function createFieldView(host, options = {}) {
     if (e[0] !== 'atk' || woundUp.has(e) || CHAIN_KINDS.has(e[3])) return;
     const v = views.get(e[1]);
     if (!v || !v.windUp) return;
+    const tgt = views.get(e[2]) || battleView(e[2]);
+    // FACING BEFORE THE ANIMATION (owner's rule): the model turns toward the target the moment its attack clip starts
+    // winding up — the strike frame comes later, so the swing is already facing the right way. The 0.05 s flip runs
+    // during the clip's anticipation. `onAttack` repeats it for an attack that had no look-ahead (the clip then starts
+    // at its strike frame); a 群攻 hit is left alone on both paths.
+    if (tgt) v.faceTarget?.(tgt, (UP_ATK_COUNT.get(e[1]) || 0) > 1);
     if (v.windUp(t - upcomingT, e[3])) {
       woundUp.add(e);
       // the official cast effects that start with the cast play with the clip (render/vfx/wiring.js castStart)
       const a = v.actor;
       const skillOn = upSkill.has(e[1]) ? upSkill.get(e[1]) : undefined;
-      wiring.castStart(v, views.get(e[2]), e[3], a ? { skip: a.windSkip || 0, left: a.windCastLeft || 0, skillOn } : { skillOn });
+      wiring.castStart(v, tgt, e[3], a ? { skip: a.windSkip || 0, left: a.windCastLeft || 0, skillOn } : { skillOn });
     }
   }
 

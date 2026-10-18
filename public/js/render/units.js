@@ -1382,6 +1382,29 @@ export class UnitView {
    * An attack was made (b.ev 'atk'). `target` = view or null. `multi` = this operator attacked more than one target in
    * this frame (群攻): the model is left alone then, the owner's rule.
    */
+  /**
+   * Turn the MODEL toward `target` — the display-only facing (`setViewDir`), never `dir` / the attack range. Called from
+   * two places, both BEFORE the swing is visible: the look-ahead (app.js onUpcoming) as the attack clip starts winding up
+   * (the owner's rule: 朝向优先, then the animation), and `onAttack` for an attack that had no look-ahead (its clip starts
+   * at the strike frame). No turn while the unit cannot act, none for a 群攻 hit (`multi`), operators / summons only.
+   * @returns {boolean} whether the model turned
+   */
+  faceTarget(target, multi = false) {
+    if (!target || this.isEnemy || this.info.kind !== 'op') return false;
+    if (multi) return false;
+    const held = this.statuses && (this.statuses.has('stun') || this.statuses.has('sleep') || this.statuses.has('freeze'));
+    if (held) return false;
+    const dir = facingToward(this, target);
+    if (!dir || dir === (this.viewDir || this.dir)) return false;
+    this.setViewDir(dir, FACING_FLIP_S);
+    this.facingFor = FACING_HOLD_S;        // back to the deployed facing this long after the last attack (update)
+    return true;
+  }
+
+  /**
+   * An attack was made (b.ev 'atk'). `target` = view or null. `multi` = this operator attacked more than one target in
+   * this frame (群攻): the model is left alone then, the owner's rule.
+   */
   onAttack(target, now, kind, multi = false) {
     if (!this.alive) return;
     this._pendingDeployElapsed = null;
@@ -1396,21 +1419,13 @@ export class UnitView {
       }
       this.lastAtk = now;
     }
-    if (target && !this.isEnemy && this.info.kind !== 'device') {
-      // The operator's MODEL follows the target it is hitting (owner request; `dir` and the range stay deployed — this is
-      // UnitView.setViewDir, the same display-only channel a cosmetic facing plugin uses). No turn while it cannot act,
-      // and none for a multi-target hit (群攻), so an area attacker does not flicker between targets.
-      const held = this.statuses && (this.statuses.has('stun') || this.statuses.has('sleep') || this.statuses.has('freeze'));
-      if (!multi && !held) {
-        const dir = facingToward(this, target);
-        if (dir) {
-          this.setViewDir(dir, FACING_FLIP_S);
-          this.facingFor = FACING_HOLD_S;      // turn back this long after the last attack (update)
-        }
-      }
-    } else if (target && this.isEnemy) {
+    if (target && this.isEnemy) {
       const dx = target.x - this.x;
       if (Math.abs(dx) > 0.1) this.visFacing = dx < 0 ? -1 : 1;
+    } else if (target) {
+      // an attack without a look-ahead: its clip starts at the strike frame, so the turn has to happen now (a wound-up
+      // attack already turned in onUpcoming, and this is then a no-op)
+      this.faceTarget(target, multi);
     }
     if (target) {
       const dx = target.x - this.x, dy = target.y - this.y, len = Math.hypot(dx, dy) || 1;
