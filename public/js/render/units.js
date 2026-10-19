@@ -701,6 +701,7 @@ export class UnitView {
     this._flipDir = this.dir || 'RIGHT';      // the direction the running sweep heads for
     this._restFlip = 1;                       // the horizontal side of the settled / deployed model (a revert goes back to it)
     this._flipSquash = 1;                     // 1 -> 0 -> 1 across a skeleton-changing turn (edge-on at the swap)
+    this._flipBulge = 1;                      // the matching height bulge while the model is edge-on
     this._flipSquashOn = false;
     this._walkSign = null;        // the sign an enemy walks in (set from its velocity; the turn goes back to it)
     this._skillCastSeen = false;  // whether the running skill has already attacked once (FirstCastTarget rows)
@@ -1510,7 +1511,8 @@ export class UnitView {
                                              // now gives way to the ability's later rows)
     const from = this.modelFlip() * (this.mirrorX ? -1 : 1);
     // which side the Back model faces: the target's, and the side it already had when the target is straight above
-    const side = Math.abs(Number(aim.x) - Number(this.x)) >= 0.1 ? (Number(aim.x) < Number(this.x) ? -1 : 1) : (from < 0 ? -1 : 1);
+    const dxAim = Number(aim.x) - Number(this.x);
+    const side = Number.isFinite(dxAim) && Math.abs(dxAim) > 1e-6 ? (dxAim < 0 ? -1 : 1) : (from < 0 ? -1 : 1);
     // an enemy's turn goes back to the sign it had BEFORE it turned (its walking direction)
     if (this.isEnemy && !this.viewDir) this._walkSign = from;
     this.viewDir = d;
@@ -1961,13 +1963,22 @@ export class UnitView {
       this._flipT = Math.min(1, this._flipT + step);
       const k = this._flipT * this._flipT * (3 - 2 * this._flipT);            // smoothstep
       this._flip = this._flipFrom + (this._flipTo - this._flipFrom) * k;
-      // edge-on at the middle: what makes a UP / DOWN turn (same mirror sign) read as a turn instead of a snap
-      this._flipSquash = this._flipSquashOn ? Math.abs(1 - 2 * k) : 1;
+      // edge-on at the middle: what makes an UP / DOWN turn read as a turn instead of a snap. The squeeze is EASED at
+      // both ends (smoothstep of the V) so it does not start or land with a jerk, and the height bulges slightly while
+      // the model is edge-on to keep the turn readable in the few frames it has.
+      if (this._flipSquashOn) {
+        const s = Math.abs(1 - 2 * k);
+        this._flipSquash = s * s * (3 - 2 * s);
+        this._flipBulge = 1 + 0.12 * (1 - this._flipSquash);
+      } else {
+        this._flipSquash = 1;
+        this._flipBulge = 1;
+      }
       if (this._flipSwap && this._flipT >= 0.5) {
         this._flipSwap = false;
         this._syncModel();                   // 换骨架: the Front ⇄ Back model takes over with its own animation
       }
-      if (this._flipT >= 1) { this._flip = this._flipTo; this._flipSquash = 1; this._flipSquashOn = false; }
+      if (this._flipT >= 1) { this._flip = this._flipTo; this._flipSquash = 1; this._flipBulge = 1; this._flipSquashOn = false; }
     }
     // 回正: the attack animation is over and nothing follows → face the deployed direction again. A stunned / frozen /
     // sleeping operator keeps the facing it had (its stun clip plays in place).
@@ -2620,7 +2631,7 @@ export class UnitView {
   _drawDirect(sc, flip, tint, animDt, held, posed = false) {
     const sp = this.actor.spine;
     sp.alpha = this.swapT;
-    sp.scale.set(sc * flip * this._flipSquash, sc * this.modelKY);
+    sp.scale.set(sc * flip * this._flipSquash, sc * this.modelKY * this._flipBulge);
     if (!posed) {
       if (held) this.actor.clock += animDt;
       else this.actor.update(animDt);
@@ -2671,7 +2682,7 @@ export class UnitView {
       this._renderImpostor(sc, atlas);
     }
     const k = imp.sc > 0 ? sc / imp.sc : 1;
-    imp.sprite.scale.set(k * flip * this._flipSquash, k);
+    imp.sprite.scale.set(k * flip * this._flipSquash, k * this._flipBulge);
     imp.sprite.alpha = this.swapT;
     imp.sprite.tint = tint;
   }

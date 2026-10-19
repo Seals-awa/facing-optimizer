@@ -375,6 +375,43 @@ describe('the Back model has two sides', () => {
   });
 });
 
+describe('the transition is smooth and the back faces the target side', () => {
+  test('the squeeze eases at both ends and bulges while edge-on', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    v.faceTarget(at(4, 12), false, { lead: 0.4 });
+    const camera = cam();
+    const squash = [];
+    let bulgeMax = 0;
+    for (let i = 0; i < 40; i++) {
+      v.update(1 / 60, camera, 0);
+      if (v._flipT >= 1) break;                       // the settling frame is not part of the sweep
+      squash.push(v._flipSquash);
+      bulgeMax = Math.max(bulgeMax, v._flipBulge);
+    }
+    assert.ok(squash.length >= 6, `frames in the sweep: ${squash.length}`);
+    assert.ok(squash[0] > 0.9, `eased in: ${squash[0].toFixed(2)}`);
+    assert.ok(Math.min(...squash) < 0.2, `edge-on somewhere in the sweep: ${Math.min(...squash).toFixed(2)}`);
+    assert.ok(squash[squash.length - 1] > 0.9, `eased out: ${squash[squash.length - 1].toFixed(2)}`);
+    assert.ok(bulgeMax > 1.05, `height bulge: ${bulgeMax.toFixed(2)}`);
+  });
+
+  test('a target 0.02 grid to the LEFT of a RIGHT-deployed operator gets the left-facing back', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    assert.equal(v.faceTarget(at(3.98, 12), false, { lead: 0.4 }), true);
+    assert.equal(v.viewDir, 'UP');
+    run(v, 0.3);
+    assert.equal(v.entryBack, true);
+    assert.equal(v.modelFlip(), -1, 'the target decides the side, not the deployment');
+  });
+
+  test('an exact tie keeps the side the model already had', async () => {
+    const { v } = await ally({ dir: 'LEFT' });
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.4 }), true);   // straight above
+    run(v, 0.3);
+    assert.equal(v.modelFlip(), -1, 'the deployed LEFT side');
+  });
+});
+
 describe('an enemy goes back to its walking direction', () => {
   /** An enemy view whose attack clip can be ended, plus a way to feed its velocity. */
   async function enemy(info = {}) {
