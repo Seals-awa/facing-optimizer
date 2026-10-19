@@ -1936,9 +1936,8 @@ export class UnitView {
     // The turnaround (render/facing.js FACING_TURN_S): sweep the drawn sign from the old facing to the new one and swap the
     // Front ⇄ Back skeleton at the midpoint, so the model's own clip continues on the new model halfway through.
     if (this._flipT < 1) {
-      // GAME time: the renderer hands out real seconds, the model's own clips advance by dt * animRate
-      const gdtTurn = Math.max(0, dt) * (this.ctx.animRate?.() || 1);
-      const step = this._flipDur > 0 ? gdtTurn / this._flipDur : 1;
+      // REAL time (fixed 0.15 s at any battle speed): the turnaround is a UI-feel animation, not part of the model's clip
+      const step = this._flipDur > 0 ? Math.max(0, dt) / this._flipDur : 1;
       this._flipT = Math.min(1, this._flipT + step);
       const k = this._flipT * this._flipT * (3 - 2 * this._flipT);            // smoothstep
       this._flip = this._flipFrom + (this._flipTo - this._flipFrom) * k;
@@ -1958,7 +1957,7 @@ export class UnitView {
         this._faceHold = Number(this._faceRow?.[4]) > 0 ? Number(this._faceRow[4]) : 0;
       }
       if (this._faceHold <= 0) this.clearFacing();
-      else this._faceHold -= (Number.isFinite(dt) ? Math.max(0, dt) : 0) * (this.ctx.animRate?.() || 1);
+      else this._faceHold -= Number.isFinite(dt) ? Math.max(0, dt) : 0;
     }
     // a failed / timed-out model load is tried again once its wait is over (SPINE_RETRY_MS; frames only: never hidden)
     if (this._retryAt && nowMs() >= this._retryAt) { this._retryAt = 0; if (!this.actor && !this._spineBusy) this._loadSpine(true); }

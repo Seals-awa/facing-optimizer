@@ -21,7 +21,7 @@
 //   * the model goes back to the deployed direction when the attack animation is over and no next attack is coming.
 //
 // The turnaround itself is the official one: skeleton + mirror + animation, 0.15 s (render/units.js `_startTurn`).
-export const FACING_TURN_S = 0.15;      // 换骨架 + 镜像 + 换动画 takes this long, in GAME seconds (the model's own clock)
+export const FACING_TURN_S = 0.15;      // 换骨架 + 镜像 + 换动画 takes this long, in REAL seconds at any battle speed
 
 /** Direction names as the sim / renderer spell them (UP is +row: the board's "up" is a bigger row). */
 const UP = 'UP', DOWN = 'DOWN', LEFT = 'LEFT', RIGHT = 'RIGHT';
