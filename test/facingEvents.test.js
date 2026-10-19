@@ -420,6 +420,45 @@ describe('the transition is smooth and the back faces the target side', () => {
   });
 });
 
+describe('a turn -> revert cycle repeats', () => {
+  test('the SECOND turn still reverts (the deployed sign is restored every time)', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    v.setHasTarget(true);
+
+    // turn 1: to the left, Front model
+    assert.equal(v.faceTarget(at(1, 9.5), false, { lead: 0.4 }), true);
+    run(v, 0.3);
+    assert.equal(v.viewDir, 'LEFT');
+    assert.equal(v.modelFlip(), -1);
+    v.clearFacing();
+    run(v, 0.3);
+    assert.equal(v.viewDir, null, 'revert 1');
+    assert.equal(v.modelFlip(), 1, 'back to the deployed RIGHT side');
+    assert.equal(v.faceSign, 1, 'the deployed sign is restored, not left at the target side');
+
+    // turn 2: straight up (Back model) - the dead zone must carry the DEPLOYED sign, so it faces right
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.4 }), true);
+    run(v, 0.3);
+    assert.equal(v.viewDir, 'UP');
+    assert.equal(v.entryBack, true);
+    assert.equal(v.modelFlip(), 1, 'the back faces the deployed side');
+    v.clearFacing();
+    run(v, 0.3);
+    assert.equal(v.viewDir, null, 'revert 2 still happens');
+    assert.equal(v.entryBack, false, 'and the Front model is back');
+    assert.equal(v.modelFlip(), 1);
+
+    // turn 3: left again, then revert again
+    assert.equal(v.faceTarget(at(1, 9.5), false, { lead: 0.4 }), true);
+    run(v, 0.3);
+    assert.equal(v.modelFlip(), -1);
+    v.clearFacing();
+    run(v, 0.3);
+    assert.equal(v.viewDir, null, 'revert 3');
+    assert.equal(v.modelFlip(), 1);
+  });
+});
+
 describe('an enemy goes back to its walking direction', () => {
   /** An enemy view whose attack clip can be ended, plus a way to feed its velocity. */
   async function enemy(info = {}) {

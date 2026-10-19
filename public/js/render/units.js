@@ -1442,7 +1442,6 @@ export class UnitView {
     // the dead zone in facing.js carried the previous sign over there.
     this._flipTo = sign === FACE_SIGN_LEFT ? -1 : sign === FACE_SIGN_RIGHT ? 1 : dir === 'LEFT' ? -1 : dir === 'RIGHT' ? 1 : this._flip;
     // the side a settled model is drawn in: what a revert goes back to
-    if (!this.viewDir && Number.isFinite(sign) && sign !== this.faceSign) this._restSign = this.faceSign;   // a real turn: remember the sign we left
     this._flipDir = dir;                     // the direction this sweep is heading for (a retarget can already be there)
     // a turn that changes the SKELETON (UP / DOWN: the mirror sign stays the same) still has to be visible: the model is
     // squeezed edge-on across the sweep, and the skeleton swap sits at the narrowest point
@@ -1530,7 +1529,11 @@ export class UnitView {
     if (this.isEnemy && !this.viewDir) this._walkSign = from;
     this.viewDir = d;
     this._faceRow = mode.row;
-    if (!this.isEnemy) this.faceSign = sign;          // adopted (the dead zone returned the old one unchanged)
+    if (!this.isEnemy) {
+      // leaving a settled (or just reverted) state: the sign it had is the one a revert goes back to
+      if (!this.viewDir && sign !== this.faceSign) this._restSign = this.faceSign;
+      this.faceSign = sign;                        // adopted (the dead zone returned the old one unchanged)
+    }
     this._startTurn(d, Number(opts.lead) || 0, opts.instant === true, false, from, mode.flags.front, sign);
     return true;
   }
@@ -1639,6 +1642,7 @@ export class UnitView {
     this._faceRow = null;
     // 回正 is a turn like any other: no attack lead, so the full sweep runs (the skeleton swap hides inside it)
     this._startTurn(this.dir, undefined, false, true, null, false, this._restSign);
+    this.faceSign = this._restSign;                // back at the deployed sign: the next turn starts from it
   }
 
   /**
