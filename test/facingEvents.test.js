@@ -154,15 +154,12 @@ describe('the turn happens when the animation starts, and only then', () => {
     assert.equal(v.viewDir, before, 'onAttack never turns now: its clip starts at the strike frame');
   });
 
-  test('a turn is compressed to the lead there is, so it is always over by the strike', async () => {
-    // a wind-up is only accepted close to its strike frame (lead * ts <= hit), so the lead can be well under the 0.15 s
-    // the full turn takes: the sweep is shortened instead of refused (a refusal left most operators never turning)
+  test('the sweep is a FIXED 0.15 s of GAME time, whatever the lead', async () => {
+    // the official turn animation is one fixed length; a short lead does not shorten it (and never cancels it)
     const { v } = await ally({ dir: 'RIGHT' });
-    assert.equal(v.windUp(0.4, 'none'), true);                 // the clip is playing now
-    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.05 }), true);
-    assert.equal(v.viewDir, 'UP');
-    assert.ok(v._flipDur <= 0.05 + 1e-9, `the sweep lasts the lead: ${v._flipDur}`);
-    // a full lead keeps the full 0.15 s turnaround
+    assert.equal(v.windUp(0.4, 'none'), true);
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.05 }), true, 'a short lead still turns');
+    assert.equal(v._flipDur, FACING_TURN_S, 'the sweep is not compressed to the lead');
     const { v: v2 } = await ally({ dir: 'RIGHT' });
     assert.equal(v2.faceTarget(at(4, 12), false, { lead: 0.4 }), true);
     assert.equal(v2._flipDur, FACING_TURN_S);
@@ -323,6 +320,20 @@ describe('a dead target is replaced first, then the model decides', () => {
     assert.equal(v.viewDir, null, '回正 once the clip is over and nothing is in range');
   });
 });
+describe('the turnaround runs on the animation clock', () => {
+  test('at the renderer rate (~2 game-s per real s) the sweep takes ~0.075 real s', async () => {
+    const ctx = fakeViewCtx(fake.P, { assets: store(), cam, animRate: () => 2 });
+    const v = new UnitView(ctx, { id: 1, side: 'ally', kind: 'chess', defId: 'char_x', spine: 'char_x', tier: 3, x: 4, y: 9, maxHp: 1000, dir: 'RIGHT' });
+    await tick(); await tick();
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.4 }), true);
+    const camera = cam();
+    let real = 0;
+    for (let i = 0; i < 120 && v._flipT < 1; i++) { v.update(1 / 60, camera, 0); real += 1 / 60; }
+    assert.equal(v._flipT, 1, 'the sweep finished');
+    assert.ok(real > 0.05 && real < 0.12, `real seconds for one game-time turn: ${real.toFixed(3)}`);
+  });
+});
+
 describe('an enemy goes back to its walking direction', () => {
   /** An enemy view whose attack clip can be ended, plus a way to feed its velocity. */
   async function enemy(info = {}) {
@@ -364,11 +375,11 @@ describe('an enemy goes back to its walking direction', () => {
   });
 });
 describe('the swap continues the attack, and short / late leads still turn', () => {
-  test('a short lead gets a short turn instead of none', async () => {
+  test('a short lead still turns (fixed 0.15 game s sweep)', async () => {
     const { v } = await ally({ dir: 'RIGHT' });
     assert.equal(v.windUp(0.4, 'none'), true);
-    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.05 }), true, '5 % of a second is still a turn');
-    assert.ok(v._flipDur <= 0.05 + 1e-9, `sweep ${v._flipDur}`);
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.05 }), true, 'a short lead is still a turn');
+    assert.equal(v._flipDur, FACING_TURN_S);
     assert.equal(v.viewDir, 'UP');
   });
 

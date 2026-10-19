@@ -748,7 +748,7 @@ export class UnitView {
     this.atkInterval = startAtkInterval(info.atkInterval, defaultInterval(ctx, info));
     // seconds since this unit's last attack: a target that just died is replaced within one attack interval, and the model
     // must not swing back to the deployed direction in that gap (it would sweep left -> right -> left for no reason)
-    this.sinceAtk = Infinity;
+
     // the sim's targeting frame (b.ev ['tgt', id, on]): no target -> the facing goes back to `dir` once the clip is over
     this.hasTarget = true;
     this.shake = 0;
@@ -1432,10 +1432,10 @@ export class UnitView {
     this._flipFrom = Number.isFinite(from) ? from : this._flip;
     this._flipTo = dir === 'LEFT' ? -1 : 1;
     this._flipDir = dir;                     // the direction this sweep is heading for (a retarget can already be there)
-    // the sweep has to be over by the strike frame: a wind-up accepted 0.1 s before the strike gets a 0.1 s turn. No lead
-    // at all (an event that arrived late, a strike frame reached at once) = an INSTANT turn: no sweep to run during the
-    // swing, the model is simply already facing the right way when the clip plays.
-    const dur = Number.isFinite(lead) ? Math.max(0, Math.min(FACING_TURN_S, lead)) : FACING_TURN_S;
+    // The turnaround is a FIXED 0.15 GAME seconds (the official client's turn animation), advanced with the animation clock
+    // (see update): at the renderer's ~2 game-s per real second that is ~0.075 real s. Only a turn with no lead at all (an
+    // event that arrived late) is instant - there is no sweep left to run before the strike.
+    const dur = Number.isFinite(lead) && lead <= 0 ? 0 : FACING_TURN_S;
     this._flipDur = dur;
     this._flipT = dur > 0 ? 0 : 1;
     if (dur <= 0) this._flip = this._flipTo;
@@ -1682,7 +1682,7 @@ export class UnitView {
         if (r.measured) this.atkSeen = true;
       }
       this.lastAtk = now;
-      this.sinceAtk = 0;
+
     }
     if (target && this.isEnemy) {
       const dx = target.x - this.x;
@@ -1727,7 +1727,7 @@ export class UnitView {
     this._attackForm(kind);
     const ok = this.actor.windUp(this.atkInterval, lead, !!PROJ[kind]?.once);
     if (ok) this._pendingAttack = { kind, lead, t: this._gameT };   // a swap in flight must resume THIS wind-up
-    if (ok) this.sinceAtk = 0;      // in the fight: the facing is kept until a real pause (no revert between targets)
+
     if (ok && this.imp) this.imp.dirty = true;
     return ok;
   }
@@ -1936,7 +1936,9 @@ export class UnitView {
     // The turnaround (render/facing.js FACING_TURN_S): sweep the drawn sign from the old facing to the new one and swap the
     // Front ⇄ Back skeleton at the midpoint, so the model's own clip continues on the new model halfway through.
     if (this._flipT < 1) {
-      const step = this._flipDur > 0 ? Math.max(0, dt) / this._flipDur : 1;
+      // GAME time: the renderer hands out real seconds, the model's own clips advance by dt * animRate
+      const gdtTurn = Math.max(0, dt) * (this.ctx.animRate?.() || 1);
+      const step = this._flipDur > 0 ? gdtTurn / this._flipDur : 1;
       this._flipT = Math.min(1, this._flipT + step);
       const k = this._flipT * this._flipT * (3 - 2 * this._flipT);            // smoothstep
       this._flip = this._flipFrom + (this._flipTo - this._flipFrom) * k;
@@ -1948,7 +1950,7 @@ export class UnitView {
     }
     // 回正: the attack animation is over and nothing follows → face the deployed direction again. A stunned / frozen /
     // sleeping operator keeps the facing it had (its stun clip plays in place).
-    this.sinceAtk = Number.isFinite(this.sinceAtk) ? this.sinceAtk + (Number.isFinite(dt) ? Math.max(0, dt) : 0) : Infinity;
+
     if (this.viewDir && !this._heldFacing() && !this._attackPlaying() && (this.isEnemy || !this.hasTarget)) {
       // the row's escapeTime: the facing is kept that long after the clip (10-face-modes.json), else it goes back at once
       if (!this._faceHoldArmed) {                    // armed once per turn, then it counts down
@@ -1956,7 +1958,7 @@ export class UnitView {
         this._faceHold = Number(this._faceRow?.[4]) > 0 ? Number(this._faceRow[4]) : 0;
       }
       if (this._faceHold <= 0) this.clearFacing();
-      else this._faceHold -= Number.isFinite(dt) ? Math.max(0, dt) : 0;
+      else this._faceHold -= (Number.isFinite(dt) ? Math.max(0, dt) : 0) * (this.ctx.animRate?.() || 1);
     }
     // a failed / timed-out model load is tried again once its wait is over (SPINE_RETRY_MS; frames only: never hidden)
     if (this._retryAt && nowMs() >= this._retryAt) { this._retryAt = 0; if (!this.actor && !this._spineBusy) this._loadSpine(true); }
