@@ -1328,7 +1328,9 @@ export class UnitView {
   modelFlip() {
     // the drawn horizontal sign: allies sweep it on every turn (_flip, render/facing.js FACING_TURN_S); an enemy under a
     // target turn sweeps it too (no Back model, so its turn is left / right only), otherwise its velocity rule decides
-    const sign = this.isEnemy && !this.viewDir ? (ENEMY_MODEL_FACES_LEFT ? -this.visFacing : this.visFacing) : this._flip;
+    const sign = this.isEnemy && !this.viewDir && this._flipT >= 1
+      ? (ENEMY_MODEL_FACES_LEFT ? -this.visFacing : this.visFacing)
+      : this._flip;
     return sign * (this.mirrorX ? -1 : 1);
   }
 
@@ -1597,16 +1599,22 @@ export class UnitView {
   clearFacing() {
     if (!this.viewDir) return;
     if (this.isEnemy) {
-      // back to the velocity rule: the sign it was walking in (a turn must not leave it mirrored)
-      this.viewDir = null;
+      // back to the velocity rule, SWEPT: the mirror ramps to the walking sign (an enemy has no Back model)
       this.visFacing = this._walkSign || this.visFacing || -1;
-      this._settleFlip();
+      this.viewDir = null;
+      this._flipFrom = this._flip;
+      this._flipTo = this.visFacing;
+      this._flipDur = FACING_TURN_S;
+      this._flipT = 0;
+      this._flipSquash = 1;
+      this._flipSquashOn = false;
       if (this.imp) this.imp.dirty = true;
       return;
     }
     this.viewDir = null;
     this._faceRow = null;
-    this._startTurn(this.dir, 0, false, true);      // 回正: always the deployed model, no strike to protect
+    // 回正 is a turn like any other: no attack lead, so the full sweep runs (the skeleton swap hides inside it)
+    this._startTurn(this.dir, undefined, false, true);
   }
 
   /**

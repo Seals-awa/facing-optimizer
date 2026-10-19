@@ -273,6 +273,7 @@ describe('enemies turn too (left / right only: no Back model)', () => {
     v.setHasTarget(true);
     run(v, 0.05);
     assert.equal(v.viewDir, null, 'an enemy has no targeting frame: the end of its clip ends the turn');
+    run(v, 0.2);                                  // ... and it sweeps back (0.15 game s)
     assert.equal(v.modelFlip(), 1, 'back to the direction it walks in');
     v.setHasTarget(false);                           // the targeting frame found nothing
     run(v, 0.05);
@@ -353,6 +354,7 @@ describe('an enemy goes back to its walking direction', () => {
     v.actor.update(3);                            // the clip is over
     run(v, 0.05);
     assert.equal(v.viewDir, null, 'no targeting frame for enemies: the end of the clip is what ends the turn');
+    run(v, 0.2);                                  // the revert is a swept turn too (0.15 game s)
     assert.equal(v.modelFlip(), 1, 'walking direction (right) again');
   });
 
