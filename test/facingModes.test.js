@@ -161,18 +161,22 @@ describe('the table drives the model', () => {
     assert.equal(v.entryBack, false, 'Front: the Back model is never loaded, even facing up');
   });
 
-  test('a turn under an escapeTime row is kept that long after the clip (char_002_amiya, 0.133 s)', async () => {
+  test('the revert is animation + event driven: no per-operator delay is used', async () => {
+    // char_002_amiya's rows carry escapeTime 0.133, but the table's delay is NOT read any more: the attack clip's own
+    // length decides when it is over and the sim's targeting frame decides whether anything is left to face.
     const v = await view('char_002_amiya');
     assert.equal(v.windUp(0.4, 'none'), true);
     assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.4 }), true);
-    assert.equal(v._faceRow?.[4], 0.133, 'the row that started the turn carries the escape time');
-    v.actor.update(3);                                   // the clip is over
+    assert.equal(v.viewDir, 'UP');
     run(v, 0.05);
-    assert.equal(v.viewDir, 'UP', 'still held: the escape time has not run out');
-    // the revert is the targeting frame's call, not a timer: nothing in range -> back to the deployed direction
-    v.setHasTarget(false);
+    assert.equal(v.viewDir, 'UP', 'the clip is still playing: the facing is kept by the animation, not by a timer');
+    v.actor.update(3);                               // the clip is over
+    v.setHasTarget(true);                            // and the targeting frame still sees a target
     run(v, 0.05);
-    assert.equal(v.viewDir, null, 'and then it goes back to the deployed direction');
+    assert.equal(v.viewDir, 'UP', 'a target is there: keep facing it');
+    v.setHasTarget(false);                           // nothing in range any more
+    run(v, 0.05);
+    assert.equal(v.viewDir, null, 'the clip is over and there is nothing to face: back at once, no extra delay');
   });
 });
 describe('a skill drives the facing while it runs (野鬃 S2 / 深巡 S2 keep the deployed direction)', () => {

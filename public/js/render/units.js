@@ -707,11 +707,10 @@ export class UnitView {
     // operator's model is driven while each of its ability animations plays (Target / none / Default / Front /
     // FirstCastTarget / ForceToDirection / CheckDownAttack), plus the direction-specific clips some of them play.
     this.faceRows = FACE_MODES[this.info.spine || this.info.defId] || FACE_MODES[this.info.defId] || null;
-    this._faceRow = null;         // the row that started the turn now (its escapeTime is the revert delay)
+    this._faceRow = null;         // the face-mode row that started the turn now (debug / bookkeeping)
     this._faceFirst = null;       // FirstCastTarget: the target the clip playing now was cast at
     this._faceClip = '';          // the clip _faceFirst belongs to
-    this._faceHold = 0;           // seconds the facing is still kept after that clip ended
-    this._faceHoldArmed = false;   // the escapeTime of the row above has been read for this turn
+
     this.hp = Number(info.maxHp) || 1; this.maxHp = Number(info.maxHp) || 1; this.ghostHp = this.hp;
     this.sp = 0; this.spMax = 0;
     this.ammo = null;             // [rounds left, rounds in the magazine] while an ammo skill runs (sync; b.snap `ammo`)
@@ -1602,7 +1601,6 @@ export class UnitView {
     }
     this.viewDir = null;
     this._faceRow = null;
-    this._faceHoldArmed = false;
     this._startTurn(this.dir, 0, false, true);      // 回正: always the deployed model, no strike to protect
   }
 
@@ -1951,15 +1949,10 @@ export class UnitView {
     // 回正: the attack animation is over and nothing follows → face the deployed direction again. A stunned / frozen /
     // sleeping operator keeps the facing it had (its stun clip plays in place).
 
-    if (this.viewDir && !this._heldFacing() && !this._attackPlaying() && (this.isEnemy || !this.hasTarget)) {
-      // the row's escapeTime: the facing is kept that long after the clip (10-face-modes.json), else it goes back at once
-      if (!this._faceHoldArmed) {                    // armed once per turn, then it counts down
-        this._faceHoldArmed = true;
-        this._faceHold = Number(this._faceRow?.[4]) > 0 ? Number(this._faceRow[4]) : 0;
-      }
-      if (this._faceHold <= 0) this.clearFacing();
-      else this._faceHold -= (Number.isFinite(dt) ? Math.max(0, dt) : 0) * (this.ctx.animRate?.() || 1);
-    }
+    // ANIMATION + EVENT DRIVEN, no delay of its own: the attack clip's own length and hit frame decide when it is over
+    // (`_attackPlaying`, from the model's anim data), and the sim's targeting frame decides whether anything is left to
+    // face (['tgt', id, 0|1]). Nothing is hand-filled per operator.
+    if (this.viewDir && !this._heldFacing() && !this._attackPlaying() && (this.isEnemy || !this.hasTarget)) this.clearFacing();
     // a failed / timed-out model load is tried again once its wait is over (SPINE_RETRY_MS; frames only: never hidden)
     if (this._retryAt && nowMs() >= this._retryAt) { this._retryAt = 0; if (!this.actor && !this._spineBusy) this._loadSpine(true); }
     // a load begun in a hidden tab and still in flight SPINE_STUCK_MS after it came back: started again (GitHub #68)
