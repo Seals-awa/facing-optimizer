@@ -1243,6 +1243,10 @@ export class UnitView {
     if ((prevFlags ^ this.flags) & UF.SKILL) this.setSkill(!!(this.flags & UF.SKILL));
     if (this.anim === ANIM.DIE && this.alive) this.die();
     if (this.actor && this.alive) this.actor.setBase(this._baseFromAnim());
+    // The snapshot's interval is AUTHORITATIVE (#729): a skill or buff that changed it in the same tick as this attack
+    // makes the 'rate' event one step late, and the look-ahead would pace the first swing with the old value.
+    const iv = Number(this.info && this.info.atkInterval);
+    if (Number.isFinite(iv) && iv > 0 && Math.abs(iv - this.atkInterval) > 1e-6) this.setAtkInterval(iv);
   }
 
   /** The way the model looks (−1 left, 1 right); a FIXED_FACING leader keeps its own way whatever turn it is given. */
@@ -1455,7 +1459,9 @@ export class UnitView {
     // A horizontal direction does NOT change the skeleton: the official client only mirrors there, so a model showing
     // its Back stays on it while the target strafes. UP / DOWN change it, and a revert goes back to the deployment's own.
     const wantBack = dir === 'UP' ? true : dir === 'DOWN' ? false : deployed ? false : !!this.entryBack;
-    const swap = !frontOnly && wantBack !== !!this.entryBack && (instant || forceSwap || lead > FACING_TURN_S);
+    // the skeleton swaps by DIRECTION alone: a short lead or a turn that starts mid-clip still swaps it (the
+    // swap lands at the middle of the sweep, where the flatten is narrowest, and _pendingAttack resumes the clip)
+    const swap = !frontOnly && wantBack !== !!this.entryBack;
     this._flipFrom = Number.isFinite(from) ? from : this._flip;
     // The official sign (1 right / 3 left) decides the mirror - and for UP / DOWN it still has two orientations:
     // the dead zone in facing.js carried the previous sign over there.
@@ -1465,15 +1471,14 @@ export class UnitView {
     // a turn that changes the SKELETON (UP / DOWN: the mirror sign stays the same) still has to be visible: the model is
     // squeezed edge-on across the sweep, and the skeleton swap sits at the narrowest point
     this._flipSquashOn = swap;
-    // The turnaround is a FIXED 0.15 GAME seconds (the official client's turn animation), advanced with the animation clock
-    // (see update): at the renderer's ~2 game-s per real second that is ~0.075 real s. Only a turn with no lead at all (an
-    // event that arrived late) is instant - there is no sweep left to run before the strike.
-    const dur = Number.isFinite(lead) && lead <= 0 ? 0 : FACING_TURN_S;
+    // A FIXED 0.15 GAME seconds, never shortened to fit before the strike: the official client runs the turn and
+    // the attack animation together, the flatten-and-expand covering the first 0.15 game seconds of the clip.
+    const dur = FACING_TURN_S;
     this._flipDur = dur;
     this._flipT = dur > 0 ? 0 : 1;
     if (dur <= 0) this._flip = this._flipTo;
-    // an instant turn (no lead, or the revert) swaps the skeleton NOW: there is no sweep to hide it in, and the clip
-    // must start (or continue) on the model that is already in place
+    // a turn taken before its clip starts swaps the skeleton at once (the sweep then runs on the model that is already
+    // in place); a turn that starts mid-clip swaps at the middle of the sweep, and _pendingAttack resumes that clip
     const nowSwap = instant || dur <= 0;
     this._flipSwap = swap && !nowSwap;
     this.visFacing = this._flipTo;
@@ -1791,7 +1796,7 @@ export class UnitView {
   }
 
   /**
-   * The sim says this unit's attack interval CHANGED (`b.ev` ['rate', id, seconds]): a skill or an attack-speed buff. It is
+   * The sim says this unit's attack interval CHANGED (b.ev ['rate', id, seconds]): a skill or an attack-speed buff. It is
    * authoritative, so the attack clip is paced right on the NEXT wind-up instead of waiting for this view to measure two
    * attacks by itself.
    * @param {number} seconds the sim's attack interval
@@ -3061,4 +3066,3 @@ export class DeviceView {
     this.hud.destroy({ children: true });
   }
 }
-

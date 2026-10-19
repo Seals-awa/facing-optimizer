@@ -584,13 +584,15 @@ describe('the swap continues the attack, and short / late leads still turn', () 
     assert.equal(v.viewDir, 'UP');
   });
 
-  test('a late event (lead 0) turns instantly', async () => {
+  test('a late event (lead 0) still turns, overlapping the clip', async () => {
     const { v } = await ally({ dir: 'RIGHT' });
     v.onAttack(at(4, 12), 1, 'none', false);      // the strike already happened: the event is late
     assert.equal(v.faceTarget(at(4, 12), false, { lead: 0 }), true, 'a late attack turns too');
-    assert.equal(v._flipDur, 0, 'no sweep to run during the swing');
-    assert.equal(v._flipT, 1, 'already settled');
+    assert.equal(v._flipDur, 0.15, 'the turn is never shortened: it runs with the clip');
     assert.equal(v.viewDir, 'UP');
+    run(v, 0.3);
+    assert.equal(v._flipT, 1, 'and it settles');
+    assert.equal(v.entryBack, true, 'on the Back model, as the direction asks');
   });
 
   test('the Front / Back swap resumes the wind-up on the new model', async () => {

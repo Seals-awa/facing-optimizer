@@ -5,17 +5,20 @@
 //
 // The snapshot now carries the unit's real interval (`UnitInfo.atkInterval` = sim `s.interval`, buffs included), and the
 // first measured gap replaces the estimate outright, so the very first swing is already paced right.
-export const ATK_MIN_S = 0.2;      // a sane lower bound (6 attacks / s)
-export const ATK_MAX_S = 6;        // and upper bound, as the old guess clamps
-export const ATK_DEFAULT_S = 1.2;  // nothing known at all
-export const ATK_SANE_S = [0.05, 6]; // a measured gap outside this is a stall (a hidden tab, a reconnect), not a rhythm
+// Every constant in this file is RENDERER SIDE ONLY and has no official counterpart: the client is handed the interval
+// and never clamps it. They exist so that a broken value (a 0, a NaN, a gap across a hidden tab) cannot freeze or
+// explode a clip. [ASSUMED - not verified against the official client]
+export const ATK_MIN_S = 0.2;      // [ASSUMED] a sane lower bound (6 attacks / s)
+export const ATK_MAX_S = 6;        // [ASSUMED] and upper bound, as the old guess clamps
+export const ATK_DEFAULT_S = 1.2;  // [ASSUMED] nothing known at all
+export const ATK_SANE_S = [0.05, 6]; // [ASSUMED] a measured gap outside this is a stall (a hidden tab, a reconnect), not a rhythm
 /**
  * A change bigger than this share of the current interval is taken AT ONCE — a skill turning on/off, an attack-speed buff
  * or debuff landing. Only smaller wobble (a tick of the 30 Hz clock is 3.3 % of a 1 s rhythm, plus wind-up jitter) is
  * smoothed, so the clip no longer crawls toward the truth over several attacks. Set to 0 for "always follow the last gap".
  */
-export const ATK_JUMP_TOLERANCE = 0.08;
-/** How much of a sub-threshold wobble is applied each attack (the old smoothing was 0.4 for everything). */
+export const ATK_JUMP_TOLERANCE = 0.08;   // [ASSUMED] no official basis: 8 % is one 30 Hz tick of a 1 s rhythm + jitter
+/** How much of a sub-threshold wobble is applied each attack (the old smoothing was 0.4 for everything). [ASSUMED] */
 export const ATK_DRIFT_SHARE = 0.25;
 
 /** Clamp an attack interval into what the renderer can show. NaN → ATK_DEFAULT_S. */

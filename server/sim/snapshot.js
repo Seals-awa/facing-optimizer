@@ -22,29 +22,6 @@ import { DIE_ANIM_TIME, ATTACK_ANIM_TIME, DEPLOY_ANIM_TIME } from './constants.j
 import { enemyStealthed } from './targeting.js';
 
 const r2 = (v) => Math.round(v * 100) / 100;
-
-/**
- * The attack interval each ally is fighting at, pushed to the clients when it CHANGES (an ['rate', unitId, seconds] event,
- * EV.RATE): a skill or an attack-speed buff/debuff changes s.interval, and without this the renderer kept the value from
- * the unit's spawn (UnitInfo.atkInterval) until it had measured two attacks of its own — which is why a caster like 惊蛰
- * swung in a slightly wrong rhythm for a few attacks after her skill came on. One event per change, allies only (the ones
- * whose attack clip is stretched over the interval).
- */
-const RATE_SEEN = new WeakMap();
-export function noteAttackRates(battle) {
-  const list = battle.allyUnits;
-  if (!list || !list.length) return;
-  for (let i = 0; i < list.length; i++) {
-    const u = list[i];
-    if (!u || !u.alive || !u.deployed) continue;
-    const cur = Number(u.s && u.s.interval);
-    if (!Number.isFinite(cur) || cur <= 0) continue;
-    const prev = RATE_SEEN.get(u);
-    RATE_SEEN.set(u, cur);
-    if (prev == null || Math.abs(prev - cur) < 1e-3) continue;   // the spawn value already reached the client
-    battle._ev(['rate', u.id, r2(cur)]);
-  }
-}
 const r1 = (v) => Math.round(v * 10) / 10;
 
 /** Static per-unit info sent on spawn / in m.field. */
@@ -59,9 +36,9 @@ export function unitInfo(u) {
     name: u.name,
     tier: d.tier ?? (d.rank === 'BOSS' ? 3 : d.rank === 'ELITE' ? 2 : 1),
     golden: !!d.golden,
-    // The unit's OWN attack interval in game seconds (units.js `s.interval`: bat × batPct × 100 / aspd, i.e. with the
-    // buffs this field carries). The renderer stretches the attack clip over it (render/attackRate.js): without it a view
-    // started from the operator's base-record guess and swung in slow motion until two attacks had been measured.
+    // The unit's OWN attack interval in game seconds (units.js `s.interval`: bat × batPct × 100 / aspd, i.e. with the buffs
+    // this record carries). The renderer stretches the attack clip over it (render/attackRate.js): without it a view started
+    // from the operator's base-record guess and swung in slow motion until two attacks had been measured.
     atkInterval: Number.isFinite(u.s?.interval) && u.s.interval > 0 ? r2(u.s.interval) : undefined,
     spine: d.spine ?? d.charId ?? u.defId,
     // 皮肤 (docs/SKINS.md): the owning player's chosen skinId. `undefined` (not null) on purpose — JSON.stringify drops
@@ -74,9 +51,6 @@ export function unitInfo(u) {
     y: r2(u.y),
     facing: u.facing ?? 1,
     dir: u.dir ?? 'RIGHT',
-    // DISPLAY-ONLY facing (Battle.setViewDir, a cosmetic facing plugin): the direction the model is drawn in while the
-    // unit fights in `dir`; a view built mid-battle (a watched field, a reconnect) starts turned. Absent = as `dir`.
-    viewDir: typeof u.viewDir === 'string' ? u.viewDir : undefined,
     maxHp: Math.max(1, Math.round(u.s.maxHp)),
     motion: u.motion === 'FLY' ? 'FLY' : undefined,
     boss: u.isBoss ? true : undefined,
@@ -220,17 +194,6 @@ export function negView(u) {
   if (typeof u.negFill !== 'function') return null;
   const v = u.negFill();
   return v > 0 ? Math.min(1, Math.max(0.01, r2(v))) : null;
-}
-
-/**
- * `shieldView(u)` = the HP shield a unit holds right now (HP points, hundredths), null without one: `u.s.shield`, the
- * buff shields damage.js absorbs before HP (a 屏障, 可颂's S2, 医疗's overheal …). Display only — render/units.js draws
- * the HP bar over `maxHp + shield`, the shield as the white share right after the green one. Hit-negating 护盾 layers
- * (shieldHits, 泥岩's 沃土予身) hold no HP amount and stay out of it (`layerView` below).
- */
-export function shieldView(u) {
-  const v = u.s ? u.s.shield : 0;
-  return typeof v === 'number' && Number.isFinite(v) && v > 1e-6 ? Math.round(v * 100) / 100 : null;
 }
 
 /**

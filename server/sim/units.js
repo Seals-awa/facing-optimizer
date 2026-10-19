@@ -55,10 +55,6 @@ export class Unit {
     // deploy direction (sim/dir.js; allies: from the board piece, default RIGHT); `facing` is its derived horizontal
     // sign (sprite flip only) — a legacy `init.facing` ±1 still maps to RIGHT / LEFT
     this.dir = normDir(init.dir ?? init.facing);
-    // DISPLAY-ONLY facing (Battle.setViewDir — a cosmetic facing plugin): the direction the model is drawn in while the
-    // unit keeps fighting the way it was deployed — its range and `dir` never move. null = as `dir` (declared here so the
-    // field never changes a unit's shape; nothing in the simulation reads it)
-    this.viewDir = null;
     this.base = {
       maxHp: 1, atk: 0, def: 0, res: 0, aspd: 100, bat: 1, blockCnt: 0, moveSpeed: 0, spRecovery: 1,
       tauntLevel: 0, massLevel: 0, hpRecoveryPerSec: 0, cost: 0, respawnTime: 0, rangeRadius: 0,
@@ -196,6 +192,9 @@ export class Unit {
       flags: flags || EMPTY,
     };
     s.flags.stun = !!(flags.stun || flags.freeze || flags.sleep || flags.levitate);
+    // the renderer's pacing hint (server/sim/battle/events.js _emitRateChanges): this unit's own attack interval moved,
+    // so a 'rate' event has to go out — set here instead of comparing every unit's stats on every tick
+    if (!this._s || Math.abs(this._s.interval - s.interval) > 1e-9) this._rateDirty = true;
     this._s = s;
     this._dirty = false;
     if (this.alive && prevMax > 0 && Math.abs(prevMax - maxHp) > 1e-9) {

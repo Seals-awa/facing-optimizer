@@ -17,8 +17,7 @@ import { presetCamera } from '../public/js/render/projection.js';
 import { renderInfo } from '../public/js/render/app/info.js';
 import { ATK_JUMP_TOLERANCE, ATK_DEFAULT_S, clampAtkInterval } from '../public/js/render/attackRate.js';
 import { unitInfo } from '../server/sim/snapshot.js';
-import * as SNAPSHOT from '../server/sim/snapshot.js';
-const require_snapshot = () => SNAPSHOT;
+import { BattleEvents } from '../server/sim/battle/events.js';
 
 let fake, UnitView;
 before(async () => {
@@ -93,29 +92,67 @@ describe('a skill / buff change', () => {
     assert.equal(Math.round(v.actor.interval * 1000) / 1000, 0.35, 'the clip is paced over the new interval');
   });
 
-test('the sim emits rate only when the interval changed (noteAttackRates)', () => {
-    const { noteAttackRates } = require_snapshot();
+  test('the sim emits rate only when the interval changed', () => {
     const evs = [];
-    // the live install's own push: server/sim/snapshot.js noteAttackRates (allies: the units whose clip is stretched)
-    const u7 = { id: 7, alive: true, deployed: true, s: { interval: 0.5 } };
-    const battle = { allyUnits: [u7], _ev: (t) => evs.push(t) };
-    noteAttackRates(battle);                                   // the spawn value already reached the client
-    assert.equal(evs.length, 0);
-    u7.s.interval = 0.35;                                      // a skill came on
-    noteAttackRates(battle);
-    assert.deepEqual(evs, [['rate', 7, 0.35]]);
-    noteAttackRates(battle);                                   // unchanged: nothing
+    // `_rateDirty` is raised by units.js _recalc when the recomputed interval moved (that is what keeps the per-tick cost
+    // at one property read per unit); the fake battle raises it the same way.
+    const u7 = { id: 7, alive: true, deployed: true, s: { interval: 0.5 }, _rateDirty: true };
+    const battle = { recordEvents: true, units: [u7], _ev: (t) => evs.push(t) };
+    BattleEvents.prototype._emitRateChanges.call(battle);
+    assert.deepEqual(evs, [['rate', 7, 0.5]]);
+    assert.equal(u7._rateDirty, false, 'the flag is consumed');
+    BattleEvents.prototype._emitRateChanges.call(battle);          // unchanged: nothing
     assert.equal(evs.length, 1);
-    u7.s.interval = 1;                                         // the buff expired
-    noteAttackRates(battle);
+    u7.s.interval = 1.0; u7._rateDirty = true;                     // a buff expired
+    BattleEvents.prototype._emitRateChanges.call(battle);
     assert.deepEqual(evs[1], ['rate', 7, 1]);
-    // a unit that is not on the field is skipped
-    const quiet = { allyUnits: [{ id: 8, alive: false, deployed: true, s: { interval: 1 } }], _ev: (x) => evs.push(x) };
-    noteAttackRates(quiet);
+    // a unit that is not on the field, or has no interval, is skipped (and costs nothing when clean)
+    const quiet = { recordEvents: true, units: [{ id: 8, alive: false, deployed: true, s: { interval: 1 }, _rateDirty: true }, { id: 9, alive: true, deployed: true, s: {}, _rateDirty: true }, { id: 10, alive: true, deployed: true, s: { interval: 2 } }], _ev: (t) => evs.push(t) };
+    BattleEvents.prototype._emitRateChanges.call(quiet);
     assert.equal(evs.length, 2);
   });
 });
 
+describe('a change in the SAME tick as the attack (the review case)', () => {
+  test('a same-tick skill change paces the FIRST swing with the new interval', async () => {
+    // the sim changed s.interval this tick (a skill that just started); the snapshot already carries it, while the
+    // 'rate' event for that change is one step behind. The look-ahead must pace from the snapshot.
+    const v = await view(unit({ atkInterval: 1.2 }));
+    assert.equal(v.atkInterval, 1.2);
+    // render/app.js keeps one info object per unit, and a later snapshot replaces its fields in place
+    v.info.atkInterval = 0.6;
+    v.sync({ x: 4, y: 9, hp: 1000, maxHp: 1000, sp: 0, spMax: 0, flags: 0, anim: 0, vx: 0, vy: 0 });
+    assert.equal(v.atkInterval, 0.6, 'the snapshot value is adopted before any rate event is applied');
+    assert.equal(v.atkKnown, true, 'and it stays authoritative');
+    assert.equal(v.actor.interval, 0.6, 'the actor paces that swing at 0.6 s');
+    v.setAtkInterval(0.6);                       // the following rate event for the same number is a no-op
+    assert.equal(v.atkInterval, 0.6);
+  });
+
+  test('the rate event carries the interval the current swing runs on (emitted after the skill tick)', () => {
+    const u = { id: 7, alive: true, deployed: true, _rateDirty: true, _rateSent: 0, s: { interval: 0.5 } };
+    const ev = new BattleEvents();          // a method container: the sim installs it on Battle.prototype
+    ev.recordEvents = true;
+    ev._evq = [];
+    ev.units = [u];
+    ev._emitRateChanges();
+    const rate = ev._evq.filter((e) => Array.isArray(e) && e[0] === 'rate');
+    assert.equal(rate.length, 1, 'one rate event');
+    assert.equal(rate[0][2], 0.5, 'and it carries the post-skill interval');
+  });
+});
+
+describe('the playback after the hit and the clip tail', () => {
+  test('the actor is paced at the sim interval, and a tail remains after the strike', async () => {
+    const v = await view(unit({ atkInterval: 0.8 }));
+    assert.equal(v.windUp(0.3, 'none'), true, 'a wind-up is accepted');
+    assert.ok(Math.abs(v.actor.interval - 0.8) < 1e-9, 'the clip runs over the sim interval');
+    v.onAttack({ x: 4, y: 12 }, 1, 'none', false);
+    const tail = Number(v.actor.attackUntil) - Number(v.actor.clock);
+    assert.ok(tail > 0, 'a tail remains after the strike');
+    assert.ok(tail <= 0.8 * 2 + 1e-6, 'and it is bounded by the interval');
+  });
+});
 describe('the intervals the renderer must not mistake for a rhythm', () => {
   test('a delayed batch (a late first attack) does not turn the sim interval into a slow one', async () => {
     const v = await view(unit({ atkInterval: 0.5 }));
