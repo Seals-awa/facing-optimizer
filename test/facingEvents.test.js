@@ -275,7 +275,8 @@ describe('enemies turn too (left / right only: no Back model)', () => {
     v.actor.update(3);                               // the clip ends
     v.setHasTarget(true);
     run(v, 0.05);
-    assert.equal(v.viewDir, 'LEFT', 'still has a target: the facing is kept (a retarget may follow)');
+    assert.equal(v.viewDir, null, 'an enemy has no targeting frame: the end of its clip ends the turn');
+    assert.equal(v.modelFlip(), 1, 'back to the direction it walks in');
     v.setHasTarget(false);                           // the targeting frame found nothing
     run(v, 0.05);
     assert.equal(v.viewDir, null, 'back to the velocity rule');
@@ -320,5 +321,45 @@ describe('a dead target is replaced first, then the model decides', () => {
     v.setHasTarget(false);                              // the targeting frame found nothing
     run(v, 0.05);
     assert.equal(v.viewDir, null, '回正 once the clip is over and nothing is in range');
+  });
+});
+describe('an enemy goes back to its walking direction', () => {
+  /** An enemy view whose attack clip can be ended, plus a way to feed its velocity. */
+  async function enemy(info = {}) {
+    const assets = store();
+    const ctx = fakeViewCtx(fake.P, { assets, cam });
+    const v = new UnitView(ctx, { id: 7, side: 'enemy', kind: 'enemy', defId: 'enemy_test', spine: 'enemy_test', tier: 1, x: 4, y: 9, maxHp: 1000, ...info });
+    await tick(); await tick();
+    v.visFacing = 1; v._settleFlip();            // walking right
+    return v;
+  }
+
+  test('after the attack clip ends it faces the way it moves again', async () => {
+    const v = await enemy();
+    assert.equal(v.windUp(0.4, 'none'), true);
+    assert.equal(v.faceTarget(at(1, 9), false, { lead: 0.4 }), true, 'turned toward the target on its left');
+    assert.equal(v.viewDir, 'LEFT');
+    v.actor.update(3);                            // the clip is over
+    run(v, 0.05);
+    assert.equal(v.viewDir, null, 'no targeting frame for enemies: the end of the clip is what ends the turn');
+    assert.equal(v.modelFlip(), 1, 'walking direction (right) again');
+  });
+
+  test('walking on drops the turn at once, even before the clip would end', async () => {
+    const v = await enemy();
+    v.windUp(0.4, 'none');
+    v.faceTarget(at(1, 9), false, { lead: 0.4 });
+    assert.equal(v.viewDir, 'LEFT');
+    v.actor.update(3);                            // clip over
+    v.sync({ x: 4, y: 9, vx: 1.5, vy: 0 });       // it starts walking right
+    assert.equal(v.viewDir, null, 'movement wins');
+    assert.equal(v.modelFlip(), 1);
+  });
+
+  test('a moving enemy that has NOT attacked keeps the velocity rule', async () => {
+    const v = await enemy();
+    v.sync({ x: 4, y: 9, vx: -1.5, vy: 0 });
+    assert.equal(v.viewDir, null);
+    assert.equal(v.modelFlip(), -1, 'walking left -> mirrored');
   });
 });

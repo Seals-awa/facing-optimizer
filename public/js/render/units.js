@@ -699,6 +699,7 @@ export class UnitView {
     this._flipDur = 0;
     this._flipSwap = false;       // the Front ⇄ Back swap is still owed at the sweep's midpoint
     this._flipDir = this.dir || 'RIGHT';      // the direction the running sweep heads for
+    this._walkSign = null;        // the sign an enemy walks in (set from its velocity; the turn goes back to it)   // an enemy's walking direction (its facing rule; a turn goes back to it)
     // The official per-ability face modes (render/faceModes.js, generated from the owner's 10-face-modes.json): how this
     // operator's model is driven while each of its ability animations plays (Target / none / Default / Front /
     // FirstCastTarget / ForceToDirection / CheckDownAttack), plus the direction-specific clips some of them play.
@@ -1208,7 +1209,13 @@ export class UnitView {
         if (this.imp) this.imp.dirty = true;
       }
     }
-    if (this.isEnemy && !this.viewDir && !this.slide?.keepFacing && Math.abs(s.vx) > 0.08) this.visFacing = s.vx < 0 ? -1 : 1;
+    if (this.isEnemy && !this.slide?.keepFacing && Math.abs(s.vx) > 0.08) {
+      this._walkSign = s.vx < 0 ? -1 : 1;      // the direction it MOVES: where a turn goes back to
+      // a turned enemy walks on: the model goes back to the direction it MOVES (`b.ev` has no targeting frame for enemies,
+      // so this 鈥?and the end of its attack clip 鈥?is what ends a turn)
+      if (this.viewDir && !this._attackPlaying()) this.clearFacing();
+      if (!this.viewDir) this.visFacing = s.vx < 0 ? -1 : 1;
+    }
     if ((prevFlags ^ this.flags) & UF.SKILL) this.setSkill(!!(this.flags & UF.SKILL));
     if (this.anim === ANIM.DIE && this.alive) this.die();
     if (this.actor && this.alive) this.actor.setBase(this._baseFromAnim());
@@ -1435,9 +1442,9 @@ export class UnitView {
     const mode = this._faceMode();
     if (this._faceDebug()) {
       console.log('[face]', this.info.defId, {
-        clip: String(this.actor && this.actor.current || ''), mode: mode.row && mode.row[1] || null, flags: mode.flags,
+        clip: String((this.actor && this.actor.current) || ''), mode: (mode.row && mode.row[1]) || null, flags: mode.flags,
         skill: !!(this.statuses && this.statuses.has('skill')), skillIndex: this.info.skillIndex,
-        lead: (typeof opts !== 'undefined' ? opts.lead : undefined), viewDir: this.viewDir, dir: this.dir,
+        lead: opts.lead, viewDir: this.viewDir, dir: this.dir,
       });
     }
     // an enemy has no deploy direction and no Back model: it only turns left / right, toward the target it is hitting
@@ -1461,6 +1468,8 @@ export class UnitView {
     if (d === (this.viewDir || (this.isEnemy ? (this.visFacing < 0 ? 'LEFT' : 'RIGHT') : this.dir))) return false;
     if (this._flipT < 1 && this._flipDir === d) return false;
     const from = this.modelFlip() * (this.mirrorX ? -1 : 1);
+    // an enemy's turn goes back to the sign it had BEFORE it turned (its walking direction)
+    if (this.isEnemy && !this.viewDir) this._walkSign = from;
     this.viewDir = d;
     this._faceRow = mode.row;
     this._startTurn(d, Number(opts.lead) || 0, opts.instant === true, false, from, mode.flags.front);
@@ -1552,7 +1561,14 @@ export class UnitView {
   /** 回正: go back to the deployed direction (the attack animation is over and no attack follows). */
   clearFacing() {
     if (!this.viewDir) return;
-    if (this.isEnemy) { this.viewDir = null; this._settleFlip(); return; }   // back to the velocity rule
+    if (this.isEnemy) {
+      // back to the velocity rule: the sign it was walking in (a turn must not leave it mirrored)
+      this.viewDir = null;
+      this.visFacing = this._walkSign || this.visFacing || -1;
+      this._settleFlip();
+      if (this.imp) this.imp.dirty = true;
+      return;
+    }
     this.viewDir = null;
     this._faceRow = null;
     this._faceHoldArmed = false;
@@ -1579,6 +1595,8 @@ export class UnitView {
    * @param {boolean} on
    */
   setHasTarget(on) {
+    // the targeting frame is an ALLY signal (server/sim/ai.js): an enemy's facing is its velocity, see sync()
+    if (this.isEnemy) return;
     this.hasTarget = !!on;
     // the clip may already be over: 鍥炴 now (the targeting frame is what decides, not a countdown)
     if (!this.hasTarget && this.viewDir && !this._heldFacing() && !this._attackPlaying()) this.clearFacing();
@@ -1702,13 +1720,6 @@ export class UnitView {
     // direction for the whole skill: turn back now instead of waiting for an attack to notice
     if (on && this.viewDir) {
       const mode = this._faceMode();
-    if (this._faceDebug()) {
-      console.log('[face]', this.info.defId, {
-        clip: String(this.actor && this.actor.current || ''), mode: mode.row && mode.row[1] || null, flags: mode.flags,
-        skill: !!(this.statuses && this.statuses.has('skill')), skillIndex: this.info.skillIndex,
-        lead: (typeof opts !== 'undefined' ? opts.lead : undefined), viewDir: this.viewDir, dir: this.dir,
-      });
-    }
       if (mode.flags.none || mode.flags.def) this.clearFacing();
     }
   }
@@ -1900,7 +1911,7 @@ export class UnitView {
     // 回正: the attack animation is over and nothing follows → face the deployed direction again. A stunned / frozen /
     // sleeping operator keeps the facing it had (its stun clip plays in place).
     this.sinceAtk = Number.isFinite(this.sinceAtk) ? this.sinceAtk + (Number.isFinite(dt) ? Math.max(0, dt) : 0) : Infinity;
-    if (this.viewDir && !this._heldFacing() && !this._attackPlaying() && !this.hasTarget) {
+    if (this.viewDir && !this._heldFacing() && !this._attackPlaying() && (this.isEnemy || !this.hasTarget)) {
       // the row's escapeTime: the facing is kept that long after the clip (10-face-modes.json), else it goes back at once
       if (!this._faceHoldArmed) {                    // armed once per turn, then it counts down
         this._faceHoldArmed = true;
