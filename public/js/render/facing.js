@@ -26,52 +26,97 @@ export const FACING_TURN_S = 0.15;      // 换骨架 + 镜像 + 换动画 takes 
 /** Direction names as the sim / renderer spell them (UP is +row: the board's "up" is a bigger row). */
 const UP = 'UP', DOWN = 'DOWN', LEFT = 'LEFT', RIGHT = 'RIGHT';
 
-// --- the official direction test (the operator's rule, reconstructed from the client's own chain) ---------------------
-// The client's `_SetFourDirection` picks a direction from the target offset with these thresholds; `faceToBack` is simply
-// "the direction is Up" (see `UnitView._wantsBack` / `_wantsBackFor`).
-/** Horizontal / vertical tolerance of the four-direction test (TOLERANCE). */
+// --- the official four-direction resolution (docs/research/10-face-logic.md: disassembled from the shipped client) -----
+// The official rule is NOT a one-shot threshold test. It is two axes with a HYSTERESIS band:
+//
+//   MapUtil.ParseDirection(v, addon)   argmax over the four directions of dot(v, dir) + (k & 1 ? addon : 0): the
+//                                      horizontal entries (indices 1 and 3) carry the bias. Indices: 0 up, 1 right,
+//                                      2 down, 3 left (the research note's table order; the table itself was not read).
+//   _CalculateLOrRDirection(v, prevSign)
+//                                      parsed = ParseDirection(v, 0); a horizontal parse is adopted outright; otherwise
+//                                      v.x < -0.2 -> 3 (left), v.x > +0.2 -> 1 (right), else **prevSign** - that
+//                                      carry-over is the dead zone that stops a model from flickering at the boundary.
+//   _SetFourDirection(sign, uOrD)      sign = 1 right / 3 left (mirror), uOrD swaps the front and back configurations.
+//
+// `v` is the normalized target offset; the `too close` / `zero` guards run before any of it.
+/** TOLERANCE_L_OR_R_DIRECTION: the dead zone on the normalized x (|x| <= 0.2 keeps the previous sign). */
 export const FACING_TOLERANCE = 0.2;
-/** The extra band added to it (ADDON): past TOLERANCE + ADDON tiles sideways the model stays level. */
+/** ADDON_TO_L_OR_R_DIRECTION: the bias the horizontal directions get in ParseDirection. */
 export const FACING_ADDON = 0.25;
-/** Closer than this (in tiles) the client judges no direction at all and keeps the facing the model has. */
+/** TOO_CLOSE_TOLERANCE_SQR = 0.0625 = 0.25^2: closer than this the client judges no direction at all. */
 export const FACING_TOO_CLOSE = 0.25;
-/** Both offsets below this are "no direction". */
+/** DIRECTION_ZERO_TOLERANCE: a direction vector shorter than this is no direction. */
 export const FACING_ZERO = 0.01;
+/** ParseDirection's own |v| threshold (0x186e3fd88 = 1e-05, inlined in the method). */
+export const FACING_PARSE_EPS = 1e-5;
+/** The official sign encoding: 1 = right, 3 = left. */
+export const FACE_SIGN_RIGHT = 1;
+export const FACE_SIGN_LEFT = 3;
+/** FaceSwitcher._defaultLOrR, the value every operator ships with. */
+export const FACE_DEFAULT_SIGN = FACE_SIGN_LEFT;
+
+// The direction table, in ParseDirection's order: 0 up, 1 right, 2 down, 3 left. This renderer's dy grows UPWARD
+// (a bigger row is higher on the board), so "up" is +y here - the only place the official sign is adapted.
+const FACE_DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+const FACE_DIR_NAMES = ['UP', 'RIGHT', 'DOWN', 'LEFT'];
 
 /**
- * The direction to draw a model in for a target offset (dx = right, dy = up, in tiles) — the operator's rule:
+ * MapUtil.ParseDirection: the four-direction argmax with the horizontal bias.
  *
- *   1. `dx² + dy² < 0.25²` → too close: no direction, the model keeps the facing it has;
- *   2. both `|dx|` and `|dy|` below 0.01 → no direction;
- *   3. horizontal first: `|dx| >= TOLERANCE + ADDON` (0.45 tiles) is level — LEFT / RIGHT;
- *   4. otherwise the narrow band around vertical: `|dy| > |dx|` is UP / DOWN; a target that is wider than it is tall stays
- *      level even inside the band.
+ * `best = dot(v, dirs[0]) + (0 & 1) * addon`, then for k = 1..3 `d = dot(v, dirs[k]) + ((k & 1) * addon)`: only the
+ * horizontal entries (k = 1, 3) get `addon`, and ties keep the earlier index (the loop's comparison is a strict `>`).
  *
- * So "up" is a narrow strip straight above / below (sideways offset under 0.45 tiles), not a 45° cone, and a target that
- * hugs the unit (< 0.25 tiles) turns nothing — which is why turning up is rarely seen in game.
- *
- * [ASSUMED] step 3's exact form: the client compares `|dx|` against `TOLERANCE + ADDON` (the alternative reading applies
- * one constant per axis). The owner's description — "the up band is ±0.2–0.45 tiles, and only when the vertical offset is
- * larger" — is what this implements.
- *
- * @param {number} dx
+ * @param {number} dx any offset (it is normalized here)
  * @param {number} dy
- * @returns {'UP'|'DOWN'|'LEFT'|'RIGHT'|null} null = no direction (keep the facing)
+ * @param {number} [addon] 0 for the sign decision, ADDON_TO_L_OR_R_DIRECTION for the axis decision
+ * @returns {number} 0..3 (up / right / down / left)
  */
-export function facingDir(dx, dy) {
-  const c = Number(dx) || 0, r = Number(dy) || 0;
-  const ac = Math.abs(c), ar = Math.abs(r);
-  if (ac * ac + r * r < FACING_TOO_CLOSE * FACING_TOO_CLOSE) return null;      // too close: keep the facing
-  if (ac < FACING_ZERO && ar < FACING_ZERO) return null;                       // no direction
-  if (ac >= FACING_TOLERANCE + FACING_ADDON) return c > 0 ? RIGHT : LEFT;      // far enough sideways: level
-  if (ar > ac) return r > 0 ? UP : DOWN;                                       // the narrow up / down band
-  return c > 0 ? RIGHT : LEFT;
+export function parseDirection(dx, dy, addon = 0) {
+  let x = Number(dx) || 0, y = Number(dy) || 0;
+  let m = Math.hypot(x, y);
+  if (m < FACING_PARSE_EPS) { x = FACE_DIRS[0][0]; y = FACE_DIRS[0][1]; m = 1; }   // the default direction
+  x /= m; y /= m;
+  let best = 0;
+  let bestDot = x * FACE_DIRS[0][0] + y * FACE_DIRS[0][1];
+  for (let k = 1; k < 4; k++) {
+    const d = x * FACE_DIRS[k][0] + y * FACE_DIRS[k][1] + ((k & 1) ? Number(addon) || 0 : 0);
+    if (d > bestDot) { bestDot = d; best = k; }
+  }
+  return best;
 }
 
-/** The direction to draw for one unit attacking another (both `{ x, y }` in tiles), or null. */
-export function facingToward(unit, target) {
-  if (!unit || !target) return null;
-  return facingDir(Number(target.x) - Number(unit.x), Number(target.y) - Number(unit.y));
+/**
+ * The official direction for one target offset: `ParseDirection` (the axis, biased toward horizontal) plus
+ * `_CalculateLOrRDirection` (the mirror sign, with its hysteresis dead zone).
+ *
+ * @param {number} dx the target's offset in tiles (the sim's y grows downward, so "up" is a negative dy)
+ * @param {number} dy
+ * @param {number} [prevSign] the sign the model had (1 right / 3 left); the dead zone carries it over
+ * @returns {{ dir: 'UP'|'DOWN'|'LEFT'|'RIGHT'|null, sign: number, uOrD: boolean }}
+ *          `dir` null = no direction at all (too close / zero offset): keep everything
+ */
+export function facingDir(dx, dy, prevSign = FACE_DEFAULT_SIGN) {
+  const x = Number(dx) || 0, y = Number(dy) || 0;
+  const prev = prevSign === FACE_SIGN_RIGHT ? FACE_SIGN_RIGHT : prevSign === FACE_SIGN_LEFT ? FACE_SIGN_LEFT : FACE_DEFAULT_SIGN;
+  if (x * x + y * y < FACING_TOO_CLOSE * FACING_TOO_CLOSE) return { dir: null, sign: prev, uOrD: false };
+  if (Math.abs(x) < FACING_ZERO && Math.abs(y) < FACING_ZERO) return { dir: null, sign: prev, uOrD: false };
+  const m = Math.hypot(x, y);
+  const nx = x / m, ny = y / m;
+  const axis = parseDirection(nx, ny, FACING_ADDON);          // UP / DOWN (the Back model) vs LEFT / RIGHT
+  const parsed = parseDirection(nx, ny, 0);                   // _CalculateLOrRDirection's own parse
+  let sign;
+  if (parsed === FACE_SIGN_RIGHT || parsed === FACE_SIGN_LEFT) sign = parsed;
+  else if (nx < -FACING_TOLERANCE) sign = FACE_SIGN_LEFT;
+  else if (nx > FACING_TOLERANCE) sign = FACE_SIGN_RIGHT;
+  else sign = prev;                                            // the dead zone: keep the sign the model had
+  const uOrD = axis === 0 || axis === 2;
+  return { dir: FACE_DIR_NAMES[axis], sign, uOrD };
+}
+
+/** The official direction for one unit attacking another (both `{ x, y }` in tiles), with the carried-over sign. */
+export function facingToward(unit, target, prevSign = FACE_DEFAULT_SIGN) {
+  if (!unit || !target) return { dir: null, sign: prevSign, uOrD: false };
+  return facingDir(Number(target.x) - Number(unit.x), Number(target.y) - Number(unit.y), prevSign);
 }
 
 /** Attack kinds whose "source" is the previous target of a bounce, not an attacker (render/app.js CHAIN_KINDS). */

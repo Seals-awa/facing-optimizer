@@ -356,8 +356,8 @@ describe('the Back model has two sides', () => {
 
   test('an up target slightly on the left gets a left-facing back', async () => {
     const { v } = await ally({ dir: 'RIGHT' });
-    // inside the up band (|dx| <= 0.45 grid) but clearly on the left
-    assert.equal(v.faceTarget(at(3.6, 12), false, { lead: 0.4 }), true);
+    // inside the up band but clearly on the left: normalized x = 0.5 / 1.118 = 0.45, past the dead zone
+    assert.equal(v.faceTarget(at(3.5, 10), false, { lead: 0.4 }), true);
     assert.equal(v.viewDir, 'UP');
     run(v, 0.3);
     assert.equal(v.modelFlip(), -1, 'the back faces the side the target is on');
@@ -395,13 +395,21 @@ describe('the transition is smooth and the back faces the target side', () => {
     assert.ok(bulgeMax > 1.05, `height bulge: ${bulgeMax.toFixed(2)}`);
   });
 
-  test('a target 0.02 grid to the LEFT of a RIGHT-deployed operator gets the left-facing back', async () => {
-    const { v } = await ally({ dir: 'RIGHT' });
-    assert.equal(v.faceTarget(at(3.98, 12), false, { lead: 0.4 }), true);
-    assert.equal(v.viewDir, 'UP');
-    run(v, 0.3);
-    assert.equal(v.entryBack, true);
-    assert.equal(v.modelFlip(), -1, 'the target decides the side, not the deployment');
+  test('the dead zone keeps the sign close to vertical, and the target decides outside it', async () => {
+    // 0.02 tiles left at 3 tiles up: normalized |x| = 0.0067, inside TOLERANCE (0.2) -> the deployed sign survives
+    const near = await ally({ dir: 'RIGHT' });
+    assert.equal(near.v.faceTarget(at(3.98, 12), false, { lead: 0.4 }), true);
+    assert.equal(near.v.viewDir, 'UP');
+    run(near.v, 0.3);
+    assert.equal(near.v.entryBack, true);
+    assert.equal(near.v.modelFlip(), 1, 'inside the dead zone the previous sign is kept');
+
+    // 0.5 tiles left at 1 tile up: normalized |x| = 0.45, outside it -> the target side wins
+    const far = await ally({ dir: 'RIGHT' });
+    assert.equal(far.v.faceTarget(at(3.5, 10), false, { lead: 0.4 }), true);
+    assert.equal(far.v.viewDir, 'UP');
+    run(far.v, 0.3);
+    assert.equal(far.v.modelFlip(), -1, 'outside the dead zone the target decides the side');
   });
 
   test('an exact tie keeps the side the model already had', async () => {

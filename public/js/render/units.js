@@ -88,7 +88,7 @@ import { MANIFOLD, isManifold, manifoldCopyForm, manifoldAttackForm } from './ma
 import { diamondTexture, shadowTexture, fxAtlas, tierChip, statusTexture, itemTexture, hudRings, ringArc, downLabel, HUD_DISC, ELEMENT_RING } from './textures.js';
 import { COLORS, TIER_COLORS, ENEMY_FRAME, UNIT, PROJ, statusIconKey, statusIconSuppressed } from './style.js';
 import { drawCrate, rowDepthKey, ROW_KEY, deviceBoxOf, DEVICE_BOX } from './tiles.js';
-import { facingToward, FACING_TURN_S, HELD_FACING, faceModeFlags, faceModeFor } from './facing.js';
+import { facingToward, FACING_TURN_S, HELD_FACING, faceModeFlags, faceModeFor, FACE_SIGN_LEFT, FACE_SIGN_RIGHT, FACE_DEFAULT_SIGN } from './facing.js';
 import { FACE_MODES } from './faceModes.js';
 import { startAtkInterval, nextAtkInterval, clampAtkInterval } from './attackRate.js';
 
@@ -699,7 +699,8 @@ export class UnitView {
     this._flipDur = 0;
     this._flipSwap = false;       // the Front ⇄ Back swap is still owed at the sweep's midpoint
     this._flipDir = this.dir || 'RIGHT';      // the direction the running sweep heads for
-    this._restFlip = 1;                       // the horizontal side of the settled / deployed model (a revert goes back to it)
+    this.faceSign = this.dir === 'LEFT' ? FACE_SIGN_LEFT : FACE_SIGN_RIGHT;   // the official sign (1 right / 3 left)
+    this._restSign = this.faceSign;            // the sign the deployed model has (a revert goes back to it)
     this._flipSquash = 1;                     // 1 -> 0 -> 1 across a skeleton-changing turn (edge-on at the swap)
     this._flipBulge = 1;                      // the matching height bulge while the model is edge-on
     this._flipSquashOn = false;
@@ -1408,9 +1409,10 @@ export class UnitView {
     this._flip = this.isEnemy
       ? (ENEMY_MODEL_FACES_LEFT ? -this.visFacing : this.visFacing) * (this.mirrorX ? -1 : 1)
       : ((this.viewDir || this.dir) === 'LEFT' ? -1 : 1);
+    this.faceSign = this._flip < 0 ? FACE_SIGN_LEFT : FACE_SIGN_RIGHT;
     this._flipFrom = this._flip; this._flipTo = this._flip;
     this._flipT = 1; this._flipDur = 0; this._flipSwap = false; this._flipSquash = 1; this._flipSquashOn = false;
-    if (!this.isEnemy) this._restFlip = this._flip;   // the settled side a revert goes back to
+    if (!this.isEnemy) this._restSign = this.faceSign;   // the settled sign a revert goes back to
   }
 
   /**
@@ -1433,14 +1435,14 @@ export class UnitView {
    * @param {'UP'|'DOWN'|'LEFT'|'RIGHT'} dir
    * @param {number} lead game seconds between the animation start and the strike
    */
-  _startTurn(dir, lead = 0, instant = false, forceSwap = false, from = null, frontOnly = false, horizontal = null) {
+  _startTurn(dir, lead = 0, instant = false, forceSwap = false, from = null, frontOnly = false, sign = null) {
     const swap = !frontOnly && this._wantsBackFor(dir) !== !!this.entryBack && (instant || forceSwap || lead > FACING_TURN_S);
     this._flipFrom = Number.isFinite(from) ? from : this._flip;
-    // the BACK model has two orientations as well: UP / DOWN keep (or take) a horizontal side instead of always facing
-    // right. `horizontal` is the target's own side; without one (a revert) the side the model already had is kept.
-    this._flipTo = dir === 'LEFT' ? -1 : dir === 'RIGHT' ? 1 : Number.isFinite(horizontal) ? horizontal : this._flip;
+    // The official sign (1 right / 3 left) decides the mirror - and for UP / DOWN it still has two orientations:
+    // the dead zone in facing.js carried the previous sign over there.
+    this._flipTo = sign === FACE_SIGN_LEFT ? -1 : sign === FACE_SIGN_RIGHT ? 1 : dir === 'LEFT' ? -1 : dir === 'RIGHT' ? 1 : this._flip;
     // the side a settled model is drawn in: what a revert goes back to
-    if (!this.viewDir && horizontal === null) this._restFlip = this._flip;   // a real turn: remember the side we left
+    if (!this.viewDir && Number.isFinite(sign) && sign !== this.faceSign) this._restSign = this.faceSign;   // a real turn: remember the sign we left
     this._flipDir = dir;                     // the direction this sweep is heading for (a retarget can already be there)
     // a turn that changes the SKELETON (UP / DOWN: the mirror sign stays the same) still has to be visible: the model is
     // squeezed edge-on across the sweep, and the skeleton swap sits at the narrowest point
@@ -1487,7 +1489,18 @@ export class UnitView {
     }
     // an enemy has no deploy direction and no Back model: it only turns left / right, toward the target it is hitting
     const aim = mode.flags.firstCast ? this._firstCastTarget(target, mode.clip) : target;
-    const d = this.isEnemy ? this._enemyTurnDir(aim) : facingToward(this, aim);
+    // the official resolution: { dir, sign } - the sign survives the dead zone (hysteresis) and also decides
+    // which way the BACK model faces, so it is carried on the view instead of being recomputed per turn
+    let d = null;
+    let sign = this.faceSign;
+    if (this.isEnemy) {
+      d = this._enemyTurnDir(aim);
+      sign = d === 'LEFT' ? FACE_SIGN_LEFT : FACE_SIGN_RIGHT;
+    } else {
+      const f = facingToward(this, aim, this.faceSign);
+      d = f.dir;
+      sign = f.sign;
+    }
     if (!d) return false;
     // THE TURN MUST FINISH BEFORE THE STRIKE (FACING_TURN_S): a turn that cannot be over by then would still be running
     // during the swing — which is exactly what "the model turns while the attack clip is playing" was. With too little
@@ -1517,7 +1530,8 @@ export class UnitView {
     if (this.isEnemy && !this.viewDir) this._walkSign = from;
     this.viewDir = d;
     this._faceRow = mode.row;
-    this._startTurn(d, Number(opts.lead) || 0, opts.instant === true, false, from, mode.flags.front, side);
+    if (!this.isEnemy) this.faceSign = sign;          // adopted (the dead zone returned the old one unchanged)
+    this._startTurn(d, Number(opts.lead) || 0, opts.instant === true, false, from, mode.flags.front, sign);
     return true;
   }
 
@@ -1624,7 +1638,7 @@ export class UnitView {
     this.viewDir = null;
     this._faceRow = null;
     // 回正 is a turn like any other: no attack lead, so the full sweep runs (the skeleton swap hides inside it)
-    this._startTurn(this.dir, undefined, false, true, null, false, this._restFlip);   // 回正: back to the deployed side
+    this._startTurn(this.dir, undefined, false, true, null, false, this._restSign);
   }
 
   /**
