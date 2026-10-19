@@ -464,6 +464,37 @@ describe('a horizontal turn keeps the skeleton', () => {
   });
 });
 
+describe('the stickiness is battle-only', () => {
+  test('a settled model always shows the deployment\'s own skeleton', async () => {
+    // battle: deploy RIGHT, a target above takes the Back model, then a side target keeps it (sticky)
+    const { v } = await ally({ dir: 'RIGHT' });
+    v.faceTarget(at(4, 12), false, { lead: 0.4 });
+    run(v, 0.3);
+    assert.equal(v.entryBack, true);
+    v.faceTarget(at(7, 9), false, { lead: 0.4 });
+    run(v, 0.3);
+    assert.equal(v.entryBack, true, 'battle: the side target keeps the Back model');
+
+    // the turn ends: a settled model goes back to what its deployment asks for (RIGHT -> Front)
+    v.clearFacing();
+    run(v, 0.3);
+    assert.equal(v.entryBack, false, 'settled: the deployment owns the skeleton again');
+    assert.equal(v.modelFlip(), 1);
+  });
+
+  test('a redeploy with another direction settles on that direction\'s skeleton', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    v.faceTarget(at(4, 12), false, { lead: 0.4 });   // Back model
+    run(v, 0.3);
+    assert.equal(v.entryBack, true);
+    v.setDir('LEFT');                                 // the sim re-orients the unit (a redeploy)
+    run(v, 0.3);
+    assert.equal(v.viewDir, null);
+    assert.equal(v.entryBack, false, 'LEFT is a Front direction');
+    assert.equal(v.modelFlip(), -1);
+  });
+});
+
 describe('a turn -> revert cycle repeats', () => {
   test('the SECOND turn still reverts (the deployed sign is restored every time)', async () => {
     const { v } = await ally({ dir: 'RIGHT' });

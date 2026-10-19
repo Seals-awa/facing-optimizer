@@ -1318,7 +1318,12 @@ export class UnitView {
     // client only mirrors there: _SetFourDirection swaps the configurations for a vertical direction), so a model
     // showing its Back stays on it while the target strafes. A revert restores the deployment's own skeleton.
     const d = this.viewDir || this.dir;
-    const wantBack = d === 'UP' ? true : d === 'DOWN' ? false : this._settledBack === undefined ? false : !!this._settledBack;
+    // The stickiness belongs to BATTLE only: a settled model (no turn running) shows the skeleton its deployment
+    // direction asks for - deploy facing up is the Back model, anything else the Front one. So coming back to
+    // prep, or a redeploy, reverts the facing even if the last fight ended on a turned skeleton.
+    const wantBack = this.viewDir
+      ? (d === 'UP' ? true : d === 'DOWN' ? false : !!this._settledBack)   // turning: horizontal keeps the skeleton
+      : d === 'UP';                                                        // settled: the deployment decides
     if (!wantBack || this.isEnemy || !id || !a || typeof a.hasBack !== 'function') return false;
     const skinOpt = this.info.skin ? { back: true, skin: this.info.skin } : { back: true };
     if (!a.hasBack(id, skinOpt)) return false;
@@ -1422,6 +1427,8 @@ export class UnitView {
     this._flipFrom = this._flip; this._flipTo = this._flip;
     this._flipT = 1; this._flipDur = 0; this._flipSwap = false; this._flipSquash = 1; this._flipSquashOn = false;
     if (!this.isEnemy) this._restSign = this.faceSign;   // the settled sign a revert goes back to
+    if (!this.isEnemy && !this.viewDir) this._settledBack = this.dir === 'UP';   // a settled model: the deployment owns the skeleton
+    this._modelDirty = true;                     // and make the swap happen on the next frame
   }
 
   /**
