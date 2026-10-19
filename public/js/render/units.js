@@ -701,6 +701,7 @@ export class UnitView {
     this._flipDir = this.dir || 'RIGHT';      // the direction the running sweep heads for
     this.faceSign = this.dir === 'LEFT' ? FACE_SIGN_LEFT : FACE_SIGN_RIGHT;   // the official sign (1 right / 3 left)
     this._restSign = this.faceSign;            // the sign the deployed model has (a revert goes back to it)
+    this._settledBack = undefined;             // the skeleton the deployment implies (undefined until known)
     this._flipSquash = 1;                     // 1 -> 0 -> 1 across a skeleton-changing turn (edge-on at the swap)
     this._flipBulge = 1;                      // the matching height bulge while the model is edge-on
     this._flipSquashOn = false;
@@ -1005,6 +1006,7 @@ export class UnitView {
       if (swap) this._dropActor();
       this.actor = actor;
       this._actorEntry = entry;
+    this._settledBack = !!this.entryBack;   // the skeleton now on screen (a horizontal turn keeps it)
       this.baseTint = (!entry.local && ALIAS_TINT[id]) || 0xffffff;   // the web alias of a local-only model
       this.body.addChild(this.actor.spine);
       this.spineReady = true;
@@ -1312,10 +1314,17 @@ export class UnitView {
   _wantsBack() {
     const a = this.ctx.assets;
     const id = this.info.spine || this.info.defId;
-    // an appearance may ship its own Front/Back pair, so both questions are asked of the skin, not the operator
-    // (docs/SKINS.md): hasBackSpine falls back to the operator's own Back when the skin has none
-    if (this.isEnemy || (this.viewDir || this.dir) !== 'UP' || !id || !a || typeof a.hasBack !== 'function' || !a.hasBack(id, this.info.skin)) return false;
-    return this.alive || dieClipDur(typeof a.spineEntry === 'function' ? a.spineEntry(id, this.info.skin ? { back: true, skin: this.info.skin } : { back: true }) : null) > 0;
+    // The Back model is asked for by UP. A horizontal facing keeps whatever skeleton is on screen (the official
+    // client only mirrors there: _SetFourDirection swaps the configurations for a vertical direction), so a model
+    // showing its Back stays on it while the target strafes. A revert restores the deployment's own skeleton.
+    const d = this.viewDir || this.dir;
+    const wantBack = d === 'UP' ? true : d === 'DOWN' ? false : this._settledBack === undefined ? false : !!this._settledBack;
+    if (!wantBack || this.isEnemy || !id || !a || typeof a.hasBack !== 'function') return false;
+    const skinOpt = this.info.skin ? { back: true, skin: this.info.skin } : { back: true };
+    if (!a.hasBack(id, skinOpt)) return false;
+    // an appearance may ship its own Front/Back pair, so the die-clip question is asked of the skin too (docs/SKINS.md)
+    if (this.alive) return true;
+    return dieClipDur(typeof a.spineEntry === 'function' ? a.spineEntry(id, skinOpt) : null) > 0;
   }
 
   /**
@@ -1435,8 +1444,11 @@ export class UnitView {
    * @param {'UP'|'DOWN'|'LEFT'|'RIGHT'} dir
    * @param {number} lead game seconds between the animation start and the strike
    */
-  _startTurn(dir, lead = 0, instant = false, forceSwap = false, from = null, frontOnly = false, sign = null) {
-    const swap = !frontOnly && this._wantsBackFor(dir) !== !!this.entryBack && (instant || forceSwap || lead > FACING_TURN_S);
+  _startTurn(dir, lead = 0, instant = false, forceSwap = false, from = null, frontOnly = false, sign = null, deployed = false) {
+    // A horizontal direction does NOT change the skeleton: the official client only mirrors there, so a model showing
+    // its Back stays on it while the target strafes. UP / DOWN change it, and a revert goes back to the deployment's own.
+    const wantBack = dir === 'UP' ? true : dir === 'DOWN' ? false : deployed ? false : !!this.entryBack;
+    const swap = !frontOnly && wantBack !== !!this.entryBack && (instant || forceSwap || lead > FACING_TURN_S);
     this._flipFrom = Number.isFinite(from) ? from : this._flip;
     // The official sign (1 right / 3 left) decides the mirror - and for UP / DOWN it still has two orientations:
     // the dead zone in facing.js carried the previous sign over there.
@@ -1641,7 +1653,7 @@ export class UnitView {
     this.viewDir = null;
     this._faceRow = null;
     // 回正 is a turn like any other: no attack lead, so the full sweep runs (the skeleton swap hides inside it)
-    this._startTurn(this.dir, undefined, false, true, null, false, this._restSign);
+    this._startTurn(this.dir, undefined, false, true, null, false, this._restSign, true);
     this.faceSign = this._restSign;                // back at the deployed sign: the next turn starts from it
   }
 

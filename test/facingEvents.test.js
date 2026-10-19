@@ -420,6 +420,50 @@ describe('the transition is smooth and the back faces the target side', () => {
   });
 });
 
+describe('a horizontal turn keeps the skeleton', () => {
+  test('deployed UP: a target to the side stays on the Back model', async () => {
+    const { v } = await ally({ dir: 'UP' });
+    run(v, 0.2);
+    assert.equal(v.entryBack, true, 'deployed facing up: the Back model');
+    assert.equal(v.faceTarget(at(1, 9.5), false, { lead: 0.4 }), true, 'a target to the left');
+    run(v, 0.3);
+    assert.equal(v.viewDir, 'LEFT');
+    assert.equal(v.entryBack, true, 'still the Back model: the official client only mirrors for a horizontal turn');
+    assert.equal(v.modelFlip(), -1, 'mirrored to face left');
+    v.clearFacing();
+    run(v, 0.3);
+    assert.equal(v.entryBack, true, 'the revert restores the deployed Back model too');
+    assert.equal(v.modelFlip(), 1);
+  });
+
+  test('deployed UP: a target BELOW does take the Front model, and the revert returns to Back', async () => {
+    const { v } = await ally({ dir: 'UP' });
+    assert.equal(v.faceTarget(at(4, 6), false, { lead: 0.4 }), true);
+    run(v, 0.3);
+    assert.equal(v.viewDir, 'DOWN');
+    assert.equal(v.entryBack, false, 'a vertical direction does change the skeleton');
+    v.clearFacing();
+    run(v, 0.3);
+    assert.equal(v.entryBack, true, 'and the revert brings the deployed Back model back');
+  });
+
+  test('deployed RIGHT: a horizontal turn stays on the Front model', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    assert.equal(v.faceTarget(at(1, 9.5), false, { lead: 0.4 }), true);
+    run(v, 0.3);
+    assert.equal(v.entryBack, false);
+    assert.equal(v.modelFlip(), -1);
+    // ... and a target above does take the Back model
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.4 }), true);
+    run(v, 0.3);
+    assert.equal(v.entryBack, true, 'UP uses the Back model');
+    // ... and then a target to the side keeps it
+    assert.equal(v.faceTarget(at(7, 9.5), false, { lead: 0.4 }), true);
+    run(v, 0.3);
+    assert.equal(v.entryBack, true, 'strafing from the Back model keeps it');
+  });
+});
+
 describe('a turn -> revert cycle repeats', () => {
   test('the SECOND turn still reverts (the deployed sign is restored every time)', async () => {
     const { v } = await ally({ dir: 'RIGHT' });
