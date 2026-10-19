@@ -320,8 +320,8 @@ describe('a dead target is replaced first, then the model decides', () => {
     assert.equal(v.viewDir, null, '回正 once the clip is over and nothing is in range');
   });
 });
-describe('the turnaround runs on real time', () => {
-  test('the sweep is 0.15 REAL seconds whatever the battle speed', async () => {
+describe('the turnaround runs on the animation clock', () => {
+  test('at the renderer rate (~2 game-s per real s) the sweep takes ~0.075 real s', async () => {
     const ctx = fakeViewCtx(fake.P, { assets: store(), cam, animRate: () => 2 });
     const v = new UnitView(ctx, { id: 1, side: 'ally', kind: 'chess', defId: 'char_x', spine: 'char_x', tier: 3, x: 4, y: 9, maxHp: 1000, dir: 'RIGHT' });
     await tick(); await tick();
@@ -330,7 +330,7 @@ describe('the turnaround runs on real time', () => {
     let real = 0;
     for (let i = 0; i < 120 && v._flipT < 1; i++) { v.update(1 / 60, camera, 0); real += 1 / 60; }
     assert.equal(v._flipT, 1, 'the sweep finished');
-    assert.ok(real > 0.14 && real < 0.18, 'real seconds for the turn: ' + real.toFixed(3));
+    assert.ok(real > 0.05 && real < 0.12, `real seconds for one game-time turn: ${real.toFixed(3)}`);
   });
 });
 
