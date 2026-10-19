@@ -335,6 +335,46 @@ describe('the turnaround runs on the animation clock', () => {
   });
 });
 
+describe('the Back model has two sides', () => {
+  test('a turn to UP keeps the deployed side: LEFT stays left', async () => {
+    const { v } = await ally({ dir: 'LEFT' });
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.4 }), true, 'straight above');
+    assert.equal(v.viewDir, 'UP');
+    run(v, 0.3);                                  // the skeleton swaps at the middle of the sweep
+    assert.equal(v.entryBack, true, 'the Back model');
+    assert.equal(v.modelFlip(), -1, 'and it faces LEFT: the back has two orientations');
+  });
+
+  test('a turn to UP from a RIGHT deployment faces right', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.4 }), true);
+    assert.equal(v.viewDir, 'UP');
+    run(v, 0.3);
+    assert.equal(v.entryBack, true);
+    assert.equal(v.modelFlip(), 1);
+  });
+
+  test('an up target slightly on the left gets a left-facing back', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    // inside the up band (|dx| <= 0.45 grid) but clearly on the left
+    assert.equal(v.faceTarget(at(3.6, 12), false, { lead: 0.4 }), true);
+    assert.equal(v.viewDir, 'UP');
+    run(v, 0.3);
+    assert.equal(v.modelFlip(), -1, 'the back faces the side the target is on');
+  });
+
+  test('the revert returns to the deployed side', async () => {
+    const { v } = await ally({ dir: 'LEFT' });
+    v.faceTarget(at(7, 9), false, { lead: 0.4 });      // turn right, Front model
+    run(v, 0.3);
+    assert.equal(v.modelFlip(), 1);
+    v.clearFacing();
+    run(v, 0.3);
+    assert.equal(v.modelFlip(), -1, 'back to the deployed LEFT side');
+    assert.equal(v.entryBack, false, 'and the Front model');
+  });
+});
+
 describe('an enemy goes back to its walking direction', () => {
   /** An enemy view whose attack clip can be ended, plus a way to feed its velocity. */
   async function enemy(info = {}) {

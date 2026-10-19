@@ -699,6 +699,7 @@ export class UnitView {
     this._flipDur = 0;
     this._flipSwap = false;       // the Front ⇄ Back swap is still owed at the sweep's midpoint
     this._flipDir = this.dir || 'RIGHT';      // the direction the running sweep heads for
+    this._restFlip = 1;                       // the horizontal side of the settled / deployed model (a revert goes back to it)
     this._flipSquash = 1;                     // 1 -> 0 -> 1 across a skeleton-changing turn (edge-on at the swap)
     this._flipSquashOn = false;
     this._walkSign = null;        // the sign an enemy walks in (set from its velocity; the turn goes back to it)
@@ -1408,6 +1409,7 @@ export class UnitView {
       : ((this.viewDir || this.dir) === 'LEFT' ? -1 : 1);
     this._flipFrom = this._flip; this._flipTo = this._flip;
     this._flipT = 1; this._flipDur = 0; this._flipSwap = false; this._flipSquash = 1; this._flipSquashOn = false;
+    if (!this.isEnemy) this._restFlip = this._flip;   // the settled side a revert goes back to
   }
 
   /**
@@ -1430,10 +1432,14 @@ export class UnitView {
    * @param {'UP'|'DOWN'|'LEFT'|'RIGHT'} dir
    * @param {number} lead game seconds between the animation start and the strike
    */
-  _startTurn(dir, lead = 0, instant = false, forceSwap = false, from = null, frontOnly = false) {
+  _startTurn(dir, lead = 0, instant = false, forceSwap = false, from = null, frontOnly = false, horizontal = null) {
     const swap = !frontOnly && this._wantsBackFor(dir) !== !!this.entryBack && (instant || forceSwap || lead > FACING_TURN_S);
     this._flipFrom = Number.isFinite(from) ? from : this._flip;
-    this._flipTo = dir === 'LEFT' ? -1 : 1;
+    // the BACK model has two orientations as well: UP / DOWN keep (or take) a horizontal side instead of always facing
+    // right. `horizontal` is the target's own side; without one (a revert) the side the model already had is kept.
+    this._flipTo = dir === 'LEFT' ? -1 : dir === 'RIGHT' ? 1 : Number.isFinite(horizontal) ? horizontal : this._flip;
+    // the side a settled model is drawn in: what a revert goes back to
+    if (!this.viewDir && horizontal === null) this._restFlip = this._flip;   // a real turn: remember the side we left
     this._flipDir = dir;                     // the direction this sweep is heading for (a retarget can already be there)
     // a turn that changes the SKELETON (UP / DOWN: the mirror sign stays the same) still has to be visible: the model is
     // squeezed edge-on across the sweep, and the skeleton swap sits at the narrowest point
@@ -1503,11 +1509,13 @@ export class UnitView {
     this._skillCastSeen = true;              // this attack was cast by the skill that is running (a FirstCastTarget row
                                              // now gives way to the ability's later rows)
     const from = this.modelFlip() * (this.mirrorX ? -1 : 1);
+    // which side the Back model faces: the target's, and the side it already had when the target is straight above
+    const side = Math.abs(Number(aim.x) - Number(this.x)) >= 0.1 ? (Number(aim.x) < Number(this.x) ? -1 : 1) : (from < 0 ? -1 : 1);
     // an enemy's turn goes back to the sign it had BEFORE it turned (its walking direction)
     if (this.isEnemy && !this.viewDir) this._walkSign = from;
     this.viewDir = d;
     this._faceRow = mode.row;
-    this._startTurn(d, Number(opts.lead) || 0, opts.instant === true, false, from, mode.flags.front);
+    this._startTurn(d, Number(opts.lead) || 0, opts.instant === true, false, from, mode.flags.front, side);
     return true;
   }
 
@@ -1614,7 +1622,7 @@ export class UnitView {
     this.viewDir = null;
     this._faceRow = null;
     // 回正 is a turn like any other: no attack lead, so the full sweep runs (the skeleton swap hides inside it)
-    this._startTurn(this.dir, undefined, false, true);
+    this._startTurn(this.dir, undefined, false, true, null, false, this._restFlip);   // 回正: back to the deployed side
   }
 
   /**
