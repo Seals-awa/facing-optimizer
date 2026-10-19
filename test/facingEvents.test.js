@@ -363,3 +363,41 @@ describe('an enemy goes back to its walking direction', () => {
     assert.equal(v.modelFlip(), -1, 'walking left -> mirrored');
   });
 });
+describe('the swap continues the attack, and short / late leads still turn', () => {
+  test('a short lead gets a short turn instead of none', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    assert.equal(v.windUp(0.4, 'none'), true);
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.05 }), true, '5 % of a second is still a turn');
+    assert.ok(v._flipDur <= 0.05 + 1e-9, `sweep ${v._flipDur}`);
+    assert.equal(v.viewDir, 'UP');
+  });
+
+  test('a late event (lead 0) turns instantly', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    v.onAttack(at(4, 12), 1, 'none', false);      // the strike already happened: the event is late
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0 }), true, 'a late attack turns too');
+    assert.equal(v._flipDur, 0, 'no sweep to run during the swing');
+    assert.equal(v._flipT, 1, 'already settled');
+    assert.equal(v.viewDir, 'UP');
+  });
+
+  test('the Front / Back swap resumes the wind-up on the new model', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    assert.equal(v.windUp(0.4, 'none'), true);
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0.4, instant: true }), true, 'turn + swap before the clip');
+    await tick(); await tick();                   // the new model arrives
+    assert.equal(v.entryBack, true);
+    assert.ok(v.actor, 'the new model is in place');
+    assert.equal(v.actor.current, v.actor._attackClip()?.loop, 'and it is playing the attack clip, not idling');
+    assert.ok(v.actor.mode === 'attack' || v.actor.clock < v.actor.attackUntil, 'the attack continues');
+  });
+
+  test('a swap after the strike replays the clip from its strike frame', async () => {
+    const { v } = await ally({ dir: 'RIGHT' });
+    v.onAttack(at(4, 12), 1, 'none', false);      // the strike happened on the old model
+    assert.equal(v.faceTarget(at(4, 12), false, { lead: 0, instant: true }), true);
+    await tick(); await tick();
+    assert.equal(v.entryBack, true);
+    assert.equal(v.actor.current, v.actor._attackClip()?.loop, 'the swing continues on the new model');
+  });
+});

@@ -130,29 +130,54 @@ export function faceModeRow(rows, clip) {
  * @param {string[]} candidates animation names, most specific first
  * @returns {any[]|null}
  */
-export function faceModeFor(rows, candidates) {
+export function faceModeFor(rows, candidates, wantKind = '', opts = {}) {
   if (!Array.isArray(rows) || !rows.length) return null;
   let fallback = null;
   for (const row of rows) {
     if (Array.isArray(row) && !row[0] && !fallback) { fallback = row; break; }
   }
+  // More than one ability can name the SAME animation with different modes (char_1052_kalts2's Skill_3_Attack is both
+  // `FirstCastTarget+CheckDownAttack` and `Target`): collect every match and pick the row whose kind is what is running,
+  // instead of letting the first row win.
+  const pick = (list) => {
+    if (!list.length) return null;
+    let pool = list;
+    if (wantKind) {
+      const byKind = pool.filter((r) => String(r[5] || '') === wantKind);
+      if (byKind.length) pool = byKind;
+    }
+    if (pool.length > 1) {
+      // the same animation driven by two abilities of one kind: a `FirstCastTarget` row is the ability's FIRST attack,
+      // so it drives the first attack of the running skill and the plain row the later ones (char_1052_kalts2 S3).
+      const isFirst = (r) => /FirstCastTarget/.test(String(r[1] || ''));
+      const first = pool.find(isFirst);
+      const later = pool.find((r) => !isFirst(r));
+      if (opts.firstCast === true && first) return first;
+      if (opts.firstCast === false && later) return later;
+      return first || later;
+    }
+    return pool[0];
+  };
   for (const cand of candidates) {
     const name = String(cand || '').toLowerCase();
     if (!name) continue;
-    for (const row of rows) if (Array.isArray(row) && String(row[0]).toLowerCase() === name) return row;
+    const hits = rows.filter((row) => Array.isArray(row) && String(row[0]).toLowerCase() === name);
+    const hit = pick(hits);
+    if (hit) return hit;
   }
   // soft match: a row whose animKey is a prefix of a candidate (Skill_2 covers Skill_2_Loop), longest row key first
   const list = candidates.map((c) => String(c || '')).filter(Boolean);
-  let best = null;
+  let best = [];
   for (const row of rows) {
     if (!Array.isArray(row) || !row[0]) continue;
     for (const cand of list) {
       if (cand === row[0] || cand.startsWith(row[0] + '_')) {
-        if (!best || row[0].length > best[0].length) best = row;
+        if (!best.length || row[0].length > best[0][0].length) best = [row];
+        else if (row[0].length === best[0][0].length) best.push(row);
       }
     }
   }
-  return best || fallback;
+  return pick(best) || fallback;
 }
 
 /**

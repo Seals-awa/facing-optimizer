@@ -38,10 +38,11 @@ describe('the generated table', () => {
       const list = FACE_MODES[id];
       assert.ok(Array.isArray(list) && list.length > 0, `${id} has rows`);
       for (const row of list) {
-        assert.equal(row.length, 5, `${id}: [animKey, mode, up, down, escapeTime]`);
+        assert.equal(row.length, 6, `${id}: [animKey, mode, up, down, escapeTime, kind]`);
         assert.equal(typeof row[0], 'string');
         assert.equal(typeof row[1], 'string');
         assert.ok(MODES.has(row[1]), `${id}: unknown mode ${row[1]}`);
+        assert.ok(['attack', 'skill', 'other', 'unspecified'].includes(row[5]), `${id}: kind`);
         assert.equal(typeof row[2], 'string');
         assert.equal(typeof row[3], 'string');
         assert.ok(row[4] >= 0 && row[4] < 10, `${id}: escapeTime`);
@@ -92,7 +93,7 @@ describe('faceModeRow', () => {
     const chen2 = FACE_MODES.char_1013_chen2;
     assert.equal(faceModeRow(chen2, 'Attack')[0], 'Attack');
     assert.equal(faceModeRow(chen2, 'Attack')[3], 'Attack_Down', 'chen2 forces the down clip');
-    assert.deepEqual(faceModeRow(chen2, 'Skill_9_Nope'), ['', 'Default+ForceToDirection', '', '', 0], 'falls back to the default row');
+    assert.deepEqual(faceModeRow(chen2, 'Skill_9_Nope'), ['', 'Default+ForceToDirection', '', '', 0, 'unspecified'], 'falls back to the default row');
     assert.equal(faceModeRow(null, 'Attack'), null);
     assert.equal(faceModeRow(undefined, 'Attack'), null);
     assert.equal(faceModeRow([], 'Attack'), null);

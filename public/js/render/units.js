@@ -699,7 +699,10 @@ export class UnitView {
     this._flipDur = 0;
     this._flipSwap = false;       // the Front ⇄ Back swap is still owed at the sweep's midpoint
     this._flipDir = this.dir || 'RIGHT';      // the direction the running sweep heads for
-    this._walkSign = null;        // the sign an enemy walks in (set from its velocity; the turn goes back to it)   // an enemy's walking direction (its facing rule; a turn goes back to it)
+    this._walkSign = null;        // the sign an enemy walks in (set from its velocity; the turn goes back to it)
+    this._skillCastSeen = false;  // whether the running skill has already attacked once (FirstCastTarget rows)
+    this._pendingAttack = null;   // the attack a Front 鈬?Back swap has to resume on the new model
+    this._gameT = 0;              // the game clock this view last saw
     // The official per-ability face modes (render/faceModes.js, generated from the owner's 10-face-modes.json): how this
     // operator's model is driven while each of its ability animations plays (Target / none / Default / Front /
     // FirstCastTarget / ForceToDirection / CheckDownAttack), plus the direction-specific clips some of them play.
@@ -782,7 +785,7 @@ export class UnitView {
     this.actor = null;
     this.spineReady = false;
     this._modelDirty = false;            // died / stood up since the last frame: update() checks Front ⇄ Back (_syncModel)
-    this._pendingDeployElapsed = null;  // elapsed game seconds until a late model can continue Start
+    this._pendingDeployElapsed = null;
     this._landUntil = 0;                 // a prep landing (land) owns the Start clip until then (ms, performance clock)
     this._spineBusy = false;             // a Spine load of this view is in flight
     this._spineTries = 0;                // failed loads since the last model (SPINE_RETRY_MS)
@@ -1022,6 +1025,21 @@ export class UnitView {
         if (deployed != null) { this.actor.deploy(); if (deployed > 0) this.actor.update(deployed); }
         // a stealth-driven form (STEALTH_FORMS): the pose of the clip set in force now, even under a frozen stun
         if (STEALTH_FORMS[id]) this.actor.syncFormPose();
+      // CONTINUE THE ATTACK the old model was in when the Front / Back swap started: without this the new model
+      // stood there, so a turn during a wind-up (or at the strike) cancelled that attack on screen.
+      if (this._pendingAttack && this.actor) {
+        const pa = this._pendingAttack;
+        this._pendingAttack = null;
+        const once2 = !!PROJ[pa.kind]?.once;
+        const elapsed = Number.isFinite(pa.t) && Number.isFinite(this._gameT) ? Math.max(0, this._gameT - pa.t) : 0;
+        if (pa.strike) {
+          this.actor.attack(this.atkInterval, once2);
+          if (elapsed > 0) this.actor.update(elapsed);
+        } else {
+          const left = Math.max(0, Number(pa.lead) - elapsed);
+          if (!this.actor.windUp(this.atkInterval, left, once2) && elapsed > 0) this.actor.attack(this.atkInterval, once2);
+        }
+      }
       }
     }, () => {
       if (req === this._spineReq) { this._spineBusy = false; this._stuckAt = 0; }
@@ -1414,13 +1432,20 @@ export class UnitView {
     this._flipFrom = Number.isFinite(from) ? from : this._flip;
     this._flipTo = dir === 'LEFT' ? -1 : 1;
     this._flipDir = dir;                     // the direction this sweep is heading for (a retarget can already be there)
-    // the sweep has to be over by the strike frame: a wind-up accepted 0.1 s before the strike gets a 0.1 s turn
-    this._flipDur = Number.isFinite(lead) && lead > 0 ? Math.min(FACING_TURN_S, lead) : FACING_TURN_S;
-    this._flipT = 0;
-    this._flipSwap = swap && !instant;     // an instant turn swaps now, before the clip starts
+    // the sweep has to be over by the strike frame: a wind-up accepted 0.1 s before the strike gets a 0.1 s turn. No lead
+    // at all (an event that arrived late, a strike frame reached at once) = an INSTANT turn: no sweep to run during the
+    // swing, the model is simply already facing the right way when the clip plays.
+    const dur = Number.isFinite(lead) ? Math.max(0, Math.min(FACING_TURN_S, lead)) : FACING_TURN_S;
+    this._flipDur = dur;
+    this._flipT = dur > 0 ? 0 : 1;
+    if (dur <= 0) this._flip = this._flipTo;
+    // an instant turn (no lead, or the revert) swaps the skeleton NOW: there is no sweep to hide it in, and the clip
+    // must start (or continue) on the model that is already in place
+    const nowSwap = instant || dur <= 0;
+    this._flipSwap = swap && !nowSwap;
     this.visFacing = this._flipTo;
     if (this.imp) this.imp.dirty = true;
-    if (swap && instant) this._syncModel();
+    if (swap && nowSwap) this._syncModel();
   }
 
   /**
@@ -1454,7 +1479,9 @@ export class UnitView {
     // THE TURN MUST FINISH BEFORE THE STRIKE (FACING_TURN_S): a turn that cannot be over by then would still be running
     // during the swing — which is exactly what "the model turns while the attack clip is playing" was. With too little
     // lead the facing is left alone; the next attack, with a full look-ahead, turns it.
-    if (Number.isFinite(opts.lead) && opts.lead <= 0) return false;
+    // THE TURN FINISHES BEFORE THE STRIKE: the sweep lasts at most FACING_TURN_S and at most the lead there is
+    // (_startTurn), so a short lead gets a short turn instead of no turn; an event that arrived late (lead <= 0)
+    // turns instantly - that is what the first strike of a fast unit and a delayed batch need.
     if (mode.flags.forceDir || mode.flags.checkDown) {
       const clip = (d === 'UP' ? mode.row?.[2] : d === 'DOWN' ? mode.row?.[3] : '') || '';
       if (clip && this._playFaceClip(clip)) return true;    // the direction-specific clip is drawn by the skeleton
@@ -1467,6 +1494,8 @@ export class UnitView {
     // share a horizontal sign. Without this a retarget in the same direction swept the model for nothing.
     if (d === (this.viewDir || (this.isEnemy ? (this.visFacing < 0 ? 'LEFT' : 'RIGHT') : this.dir))) return false;
     if (this._flipT < 1 && this._flipDir === d) return false;
+    this._skillCastSeen = true;              // this attack was cast by the skill that is running (a FirstCastTarget row
+                                             // now gives way to the ability's later rows)
     const from = this.modelFlip() * (this.mirrorX ? -1 : 1);
     // an enemy's turn goes back to the sign it had BEFORE it turned (its walking direction)
     if (this.isEnemy && !this.viewDir) this._walkSign = from;
@@ -1499,7 +1528,9 @@ export class UnitView {
     const candidates = (skill.length
       ? (skillClip ? [clip, ...skill.filter((c) => c !== clip), attack, 'Attack'] : [...skill, attack, 'Attack'])
       : [clip, attack, 'Attack']).filter(Boolean);
-    const row = faceModeFor(this.faceRows, candidates);
+    const wantKind = skill.length ? 'skill' : 'attack';
+    const firstCast = !!skill.length && !this._skillCastSeen;
+    const row = faceModeFor(this.faceRows, candidates, wantKind, { firstCast });
     return { row, flags: faceModeFlags(row?.[1]), clip };
   }
 
@@ -1638,6 +1669,7 @@ export class UnitView {
   onAttack(target, now, kind, _multi = false) {
     if (!this.alive) return;
     this._attackForm(kind);
+    this._gameT = now;                     // the game clock this event carries (a swap replays the attack against it)
     this._pendingDeployElapsed = null;
     // a one-off cast (PROJ[kind].once: 暴鸰's bomb drop) is no attack rhythm: its clip plays once at its own speed
     const once = !!PROJ[kind]?.once;
@@ -1666,6 +1698,9 @@ export class UnitView {
     }
     this.lunge = 1;
     if (this.actor) this.actor.attack(this.atkInterval, once); // game seconds: the actor's clock runs in game time
+    // the strike happened: a model swap from here on replays the attack clip FROM its strike frame, so the swing the
+    // player sees continues on the new model instead of stopping at the swap
+    this._pendingAttack = { kind, strike: true, t: this._gameT };
     if (this.imp) this.imp.dirty = true;
   }
 
@@ -1691,6 +1726,7 @@ export class UnitView {
     if (!this.alive || !this.actor || !this.spineReady) return false;
     this._attackForm(kind);
     const ok = this.actor.windUp(this.atkInterval, lead, !!PROJ[kind]?.once);
+    if (ok) this._pendingAttack = { kind, lead, t: this._gameT };   // a swap in flight must resume THIS wind-up
     if (ok) this.sinceAtk = 0;      // in the fight: the facing is kept until a real pause (no revert between targets)
     if (ok && this.imp) this.imp.dirty = true;
     return ok;
@@ -1714,6 +1750,7 @@ export class UnitView {
   onHit() { this.flash = 1; }
 
   setSkill(on) {
+    if (on && !this.statuses.has('skill')) this._skillCastSeen = false;   // a new cast: its FIRST attack has not happened
     if (on) this.statuses.add('skill'); else this.statuses.delete('skill');
     if (this.actor) this.actor.setSkill(on);
     // a skill whose row keeps the facing (`none` / `Default`, e.g. 閲庨瑑 S2, 娣卞贰 S2) means the model faces its deployed
@@ -1865,6 +1902,7 @@ export class UnitView {
   /** @param {number} dt real seconds @param {any} cam camera @param {number} t real clock */
   update(dt, cam, t) {
     if (this.destroyed) return;
+    if (Number.isFinite(t)) this._gameT = t;
     if (this._pendingDeployElapsed != null) this._pendingDeployElapsed += dt * (this.ctx.animRate?.() || 1);
     // a displacement's slide (slideTo): held where it stood until the snapshot with the destination is shown, then
     // eased into the sampled position (sync keeps `lx, ly` current) under a constant deceleration
